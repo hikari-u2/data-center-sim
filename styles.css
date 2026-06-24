@@ -44,9 +44,38 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  align-items: center;
+  align-items: flex-start;
   margin: 0 auto 18px;
   max-width: 1440px;
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #263743;
+  border-radius: 8px;
+  background: #202b33;
+}
+
+.brand-mark span {
+  display: block;
+  min-height: 6px;
+  border: 1px solid #52616b;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, #4fa475 0 6px, transparent 6px),
+    #303d46;
 }
 
 .eyebrow {
@@ -74,6 +103,84 @@ h1 {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.header-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.ai-badge {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 32px minmax(145px, auto);
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 1px solid rgba(66, 220, 213, 0.32);
+  border-radius: 11px;
+  background:
+    linear-gradient(135deg, rgba(66, 220, 213, 0.14), transparent 38%),
+    rgba(8, 17, 24, 0.78);
+  color: #d8e7ea;
+  backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(66, 220, 213, 0.08),
+    0 8px 20px rgba(2, 10, 17, 0.16),
+    0 0 18px rgba(24, 178, 173, 0.1);
+  white-space: nowrap;
+}
+
+.ai-badge-icon {
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border: 1px solid rgba(66, 220, 213, 0.22);
+  border-radius: 8px;
+  background: rgba(2, 10, 17, 0.48);
+  color: #46e0d6;
+  filter: drop-shadow(0 0 8px rgba(66, 220, 213, 0.35));
+}
+
+.ai-badge-icon path,
+.ai-badge-icon circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.ai-badge-copy {
+  display: grid;
+  gap: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-badge-copy span {
+  color: #91c9ac;
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1.12;
+}
+
+.ai-badge-copy em,
+.ai-badge-copy small {
+  color: #a9bdc3;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.ai-badge-copy em {
+  font-size: 0.68rem;
+}
+
+.ai-badge-copy small {
+  margin-top: 1px;
+  color: #7f959d;
+  font-size: 0.6rem;
 }
 
 .status-strip span {
@@ -584,6 +691,20 @@ h1 {
   .topology-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .brand-block {
+    align-items: flex-start;
+  }
+
+  .header-meta {
+    justify-items: start;
+    width: 100%;
+  }
+
+  .ai-badge {
+    grid-template-columns: 42px minmax(0, 1fr);
+    white-space: normal;
   }
 
   .status-strip {

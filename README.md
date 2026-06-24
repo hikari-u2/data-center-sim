@@ -2,6 +2,18 @@
 
 This is a simple beginner-friendly web app for visualizing and editing a small server network.
 
+## Branding And AI Usage
+
+The app header includes one AI usage badge:
+
+```text
+AI-assisted Design Ideation
+Made with ONA · GPT-5 Codex
+Requirements, ideas & critique
+```
+
+The badge uses a custom cyan line-art icon and avoids official logos or certification marks. It is included to make LLM-assisted requirements, ideation, and critique visible in the project.
+
 ## Run On Windows
 
 For non-technical users, double-click:

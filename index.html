@@ -9,15 +9,41 @@
   <body>
     <main class="app-shell">
       <header class="top-bar">
-        <div>
-          <p class="eyebrow">Data Center View</p>
-          <h1>Drag, Add, and Join Servers</h1>
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <p class="eyebrow">Data Center Sim</p>
+            <h1>Drag, Add, and Join Servers</h1>
+          </div>
         </div>
-        <div class="status-strip" aria-label="Network summary">
-          <span><strong id="server-count">0</strong> servers</span>
-          <span><strong id="link-count">0</strong> links</span>
-          <span><strong id="vm-count">0</strong> VMs</span>
-          <span><strong>1</strong> desktop</span>
+        <div class="header-meta">
+          <div class="ai-badge" aria-label="AI development usage">
+            <svg class="ai-badge-icon" viewBox="0 0 44 44" aria-hidden="true">
+              <path d="M13 16h8l5 5h6" />
+              <path d="M13 28h8l5-5h6" />
+              <path d="M22 22h-9" />
+              <circle cx="10" cy="16" r="3" />
+              <circle cx="10" cy="22" r="3" />
+              <circle cx="10" cy="28" r="3" />
+              <circle cx="35" cy="21" r="3" />
+              <circle cx="35" cy="23" r="3" />
+            </svg>
+            <span class="ai-badge-copy">
+              <span>AI-assisted Design Ideation</span>
+              <em>Made with ONA · GPT-5 Codex</em>
+              <small>Requirements, ideas &amp; critique</small>
+            </span>
+          </div>
+          <div class="status-strip" aria-label="Network summary">
+            <span><strong id="server-count">0</strong> servers</span>
+            <span><strong id="link-count">0</strong> links</span>
+            <span><strong id="vm-count">0</strong> VMs</span>
+            <span><strong>1</strong> desktop</span>
+          </div>
         </div>
       </header>
 
