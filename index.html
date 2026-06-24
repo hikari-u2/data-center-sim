@@ -186,8 +186,12 @@
                 <input id="vm-name" name="name" value="app-01" autocomplete="off" required />
               </label>
               <label>
-                <span>Size</span>
-                <input id="vm-size" name="size" value="2 CPU / 4 GB" autocomplete="off" required />
+                <span>CPU</span>
+                <input id="vm-cpu" name="cpu" type="number" min="1" step="1" value="2" autocomplete="off" required />
+              </label>
+              <label>
+                <span>RAM (GB)</span>
+                <input id="vm-ram" name="ram" type="number" min="1" step="1" value="4" autocomplete="off" required />
               </label>
               <div class="vm-form-actions">
                 <button id="vm-submit" type="submit">Add VM</button>

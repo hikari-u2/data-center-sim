@@ -519,7 +519,7 @@ function getServerCpuTopology(server) {
 }
 
 function getVmCpuCount(vm) {
-  return parseCpuCount(vm?.size);
+  return parseCpuCount(vm?.cpu ?? vm?.size);
 }
 
 function getVmNumaGuidance(vm, server = getVmHostServer(vm?.id)) {
@@ -880,10 +880,35 @@ function normalizeServer(server) {
   };
 }
 
+function deriveVmCpuRam(vm) {
+  const safeVm = vm && typeof vm === "object" ? vm : {};
+  let cpu = typeof safeVm.cpu === "string" ? safeVm.cpu.trim() : "";
+  let ram = typeof safeVm.ram === "string" ? safeVm.ram.trim() : "";
+
+  if (!cpu || !ram) {
+    const parts = String(safeVm.size || "")
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!cpu) {
+      cpu = parts.find((part) => /cpu/i.test(part)) || parts[0] || "2 CPU";
+    }
+    if (!ram) {
+      ram = parts.find((part) => /\b[MGT]B\b/i.test(part)) || parts[1] || "4 GB";
+    }
+  }
+
+  return { cpu: cpu || "2 CPU", ram: ram || "4 GB" };
+}
+
 function normalizeVm(vm) {
   const safeVm = vm && typeof vm === "object" ? vm : {};
+  const { cpu, ram } = deriveVmCpuRam(safeVm);
   return {
     ...safeVm,
+    cpu,
+    ram,
+    size: `${cpu} / ${ram}`,
     hostServerId: typeof safeVm.hostServerId === "string" ? safeVm.hostServerId : "",
     gpuPassthrough: normalizeGpuPassthrough(safeVm.gpuPassthrough),
     gpuPassthroughWarning: typeof safeVm.gpuPassthroughWarning === "string" ? safeVm.gpuPassthroughWarning : "",
@@ -1383,22 +1408,31 @@ function resetServerForm() {
 
 function getVmFormData() {
   const formData = new FormData(vmForm);
+  const cpuCount = parsePositiveInteger(formData.get("cpu"), 1);
+  const ramGb = parsePositiveInteger(formData.get("ram"), 1);
+  const cpu = `${cpuCount} CPU`;
+  const ram = `${ramGb} GB`;
 
   return {
     name: String(formData.get("name")).trim(),
-    size: String(formData.get("size")).trim(),
+    cpu,
+    ram,
+    size: `${cpu} / ${ram}`,
   };
 }
 
 function fillVmForm(vm) {
+  const { cpu, ram } = deriveVmCpuRam(vm);
   vmForm.elements.name.value = vm.name;
-  vmForm.elements.size.value = vm.size;
+  vmForm.elements.cpu.value = parseCpuCount(cpu) || 2;
+  vmForm.elements.ram.value = parseCpuCount(ram) || 4;
 }
 
 function resetVmForm() {
   selectedVmId = null;
   vmForm.elements.name.value = getNextVmName();
-  vmForm.elements.size.value = "2 CPU / 4 GB";
+  vmForm.elements.cpu.value = 2;
+  vmForm.elements.ram.value = 4;
   render();
 }
 
@@ -1971,6 +2005,8 @@ function createVm(values) {
   vms.push({
     id,
     name,
+    cpu: values.cpu,
+    ram: values.ram,
     size: values.size,
   });
   selectedVmId = id;
@@ -1985,6 +2021,8 @@ function updateSelectedVm(values) {
   }
 
   vm.name = values.name;
+  vm.cpu = values.cpu;
+  vm.ram = values.ram;
   vm.size = values.size;
 }
 
