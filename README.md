@@ -2,6 +2,21 @@
 
 This is a simple beginner-friendly web app for visualizing and editing a small server network.
 
+## Current UI
+
+![Data Center Server Map current UI](docs/images/current-ui.png)
+
+The app presents a live topology canvas in the center, editing panels on the left and right, and a saved network summary in the header. Server cards use a compact status strip for CPU, NUMA, and GPU slot usage, with quieter detail text for RAM, storage, and GPU model so the map stays readable.
+
+Users can:
+
+- Add, edit, delete, drag, and connect servers, the Admin Desktop, and the Core Switch.
+- Assign static IPs and validate them against the configured server subnet.
+- Create, edit, delete, load, unload, and move VM cards between hosts and the Holding Spot.
+- Track CPU and NUMA fit, including red VM warnings when a VM may cross a NUMA boundary.
+- Track physical GPU passthrough slots and Hyper-V DDA PCIe location assignments.
+- Save the full topology, addressing, servers, VMs, GPU assignments, and layout back to `data/config.json`.
+
 ## Software Artifact Document
 
 This project is designed as a small local web app. The browser shows the data center map, and a PowerShell script saves the map into a JSON configuration file.
