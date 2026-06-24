@@ -69,6 +69,10 @@ const DEFAULT_CONFIG = {
   ],
   network: {
     serverSubnet: "192.168.1.0/24",
+    subnets: [
+      { id: "subnet-primary", label: "Server Subnet", cidr: "192.168.1.0/24" },
+      { id: "subnet-storage", label: "Storage", cidr: "10.0.20.0/24" },
+    ],
   },
   infrastructureNodes: [
     { id: "desktop", type: "desktop", name: "Admin Desktop", staticIp: "192.168.1.1", x: 8, y: 42 },
@@ -123,6 +127,12 @@ const serverFormState = document.querySelector("#server-form-state");
 const serverSubmit = document.querySelector("#server-submit");
 const newServerButton = document.querySelector("#new-server");
 const deleteServerButton = document.querySelector("#delete-server");
+const addServerNicButton = document.querySelector("#add-server-nic");
+const serverNicList = document.querySelector("#server-nic-list");
+const serverNicError = document.querySelector("#server-nic-error");
+const addServerNicIpButton = document.querySelector("#add-server-nic-ip");
+const serverNicIpList = document.querySelector("#server-nic-ip-list");
+const serverNicIpTitle = document.querySelector("#server-nic-ip-title");
 const serverCoresPerChipInput = document.querySelector("#server-cores-per-chip");
 const serverGpuSlotsInput = document.querySelector("#server-gpu-slots");
 const serverCount = document.querySelector("#server-count");
@@ -134,7 +144,17 @@ const joinHelp = document.querySelector("#join-help");
 const networkForm = document.querySelector("#network-form");
 const subnetInput = document.querySelector("#subnet-input");
 const desktopIpInput = document.querySelector("#desktop-ip-input");
+const desktopExtraIpList = document.querySelector("#desktop-extra-ip-list");
+const addDesktopIpButton = document.querySelector("#add-desktop-ip");
 const subnetSummary = document.querySelector("#subnet-summary");
+const subnetList = document.querySelector("#subnet-list");
+const subnetAddForm = document.querySelector("#subnet-add-form");
+const subnetAddLabel = document.querySelector("#subnet-add-label");
+const subnetAddCidr = document.querySelector("#subnet-add-cidr");
+const subnetAddError = document.querySelector("#subnet-add-error");
+const ipTableBody = document.querySelector("#ip-table-body");
+const ipWarnings = document.querySelector("#ip-warnings");
+const ipCount = document.querySelector("#ip-count");
 const gpuDisplayNameInput = document.querySelector("#gpu-display-name");
 const gpuVendorInput = document.querySelector("#gpu-vendor");
 const gpuModelInput = document.querySelector("#gpu-model");
@@ -162,6 +182,9 @@ let selectedNodeId = null;
 let selectedServerId = null;
 let selectedVmId = null;
 let selectedGpuId = null;
+let serverNicDrafts = [];
+let selectedServerNicId = null;
+let desktopExtraIpDrafts = [];
 let gpuDraftDevices = [];
 let pendingGpuAssignment = null;
 let dragging = null;
@@ -384,6 +407,428 @@ function getCurrentSubnet() {
   return parseSubnet(network.serverSubnet || DEFAULT_SERVER_SUBNET);
 }
 
+function getNetworkSubnets() {
+  return Array.isArray(network.subnets) ? network.subnets : [];
+}
+
+// Defined subnets paired with their parsed form, skipping any invalid CIDRs.
+function getSubnetList() {
+  return getNetworkSubnets()
+    .map((subnet) => ({ ...subnet, parsed: parseSubnet(subnet.cidr) }))
+    .filter((subnet) => subnet.parsed);
+}
+
+function getSubnetById(subnetId) {
+  return getNetworkSubnets().find((subnet) => subnet.id === subnetId) || null;
+}
+
+function getDefaultSubnetId() {
+  return getNetworkSubnets()[0]?.id || "";
+}
+
+// Describe which defined subnet an IP belongs to, preferring an explicit
+// subnetId assignment and otherwise matching by address.
+function describeIpSubnet(ip) {
+  if (ip.subnetId) {
+    const target = getSubnetById(ip.subnetId);
+    if (target) {
+      return target.label;
+    }
+  }
+  if (ip.version === "IPv4" && ip.address) {
+    const ipNumber = parseIp(ip.address);
+    if (ipNumber !== null) {
+      const match = getSubnetList().find((subnet) => isIpInSubnet(ipNumber, subnet.parsed));
+      if (match) {
+        return match.label;
+      }
+    }
+  }
+  const cidr = formatIpCidr(ip);
+  if (cidr.includes("/")) {
+    return `/${getIpEffectivePrefix(ip)}`;
+  }
+  return ip.subnetMask || (ip.subnetId ? ip.subnetId : "—");
+}
+
+// Validate a NIC IP against the defined subnets: against its assigned subnet
+// when subnetId is set, otherwise against the full set of defined subnets.
+function getNicIpSubnetMessage(ip) {
+  if (ip.version !== "IPv4" || ip.assignmentType !== "static" || !ip.address) {
+    return "";
+  }
+  const ipNumber = parseIp(ip.address);
+  if (ipNumber === null) {
+    return "";
+  }
+  const subnets = getSubnetList();
+  if (!subnets.length) {
+    return "";
+  }
+  if (ip.subnetId) {
+    const target = subnets.find((subnet) => subnet.id === ip.subnetId);
+    if (!target) {
+      return `References unknown subnet "${ip.subnetId}"`;
+    }
+    return isIpInSubnet(ipNumber, target.parsed) ? "" : `Outside subnet ${target.label} (${target.parsed.cidr})`;
+  }
+  return subnets.some((subnet) => isIpInSubnet(ipNumber, subnet.parsed))
+    ? ""
+    : "Outside every defined subnet";
+}
+
+function getEditableServerNic(server) {
+  const nics = Array.isArray(server?.nics) ? server.nics : [];
+  return nics.find((nic) => nic.adapterType === "management-os") || nics[0] || null;
+}
+
+function normalizeServerNicIpDraft(ip) {
+  const safeIp = ip && typeof ip === "object" ? ip : {};
+  return {
+    id: typeof safeIp.id === "string" && safeIp.id.trim() ? safeIp.id.trim() : `ip-${crypto.randomUUID()}`,
+    address: typeof safeIp.address === "string" ? safeIp.address.trim() : "",
+    subnetId: typeof safeIp.subnetId === "string" ? safeIp.subnetId.trim() : getDefaultSubnetId(),
+  };
+}
+
+function normalizeServerNicDraft(nic, serverId = "") {
+  const safeNic = nic && typeof nic === "object" ? nic : {};
+  return {
+    id: typeof safeNic.id === "string" && safeNic.id.trim() ? safeNic.id.trim() : `nic-${crypto.randomUUID()}`,
+    hostServerId:
+      typeof safeNic.hostServerId === "string" && safeNic.hostServerId.trim() ? safeNic.hostServerId.trim() : serverId,
+    name: typeof safeNic.name === "string" && safeNic.name.trim() ? safeNic.name.trim() : "Management",
+    adapterType:
+      typeof safeNic.adapterType === "string" && NIC_ADAPTER_TYPES.includes(safeNic.adapterType)
+        ? safeNic.adapterType
+        : "management-os",
+    macAddress: typeof safeNic.macAddress === "string" ? safeNic.macAddress.trim() : "",
+    connectedVirtualSwitchId:
+      typeof safeNic.connectedVirtualSwitchId === "string" ? safeNic.connectedVirtualSwitchId.trim() : "",
+    vlanId: toNullableInteger(safeNic.vlanId),
+    ipAddresses: Array.isArray(safeNic.ipAddresses)
+      ? safeNic.ipAddresses.map(normalizeServerNicIpDraft)
+      : [],
+  };
+}
+
+function getDefaultServerNicName(index, adapterType = "physical") {
+  if (adapterType === "management-os") {
+    return "Management";
+  }
+  return `NIC ${index + 1}`;
+}
+
+function getServerNicDraftsFromServer(server) {
+  const primaryIp = String(server?.staticIp || "").trim();
+  return (Array.isArray(server?.nics) ? server.nics : []).map((nic) => {
+    const normalized = normalizeServerNicDraft(nic, server?.id || "");
+    if (normalized.adapterType === "management-os" && primaryIp) {
+      normalized.ipAddresses = normalized.ipAddresses.filter((ip) => ip.address !== primaryIp);
+    }
+    return normalized;
+  });
+}
+
+function getSelectedServerNicDraft() {
+  return serverNicDrafts.find((nic) => nic.id === selectedServerNicId) || null;
+}
+
+function syncSelectedServerNic() {
+  if (!serverNicDrafts.length) {
+    selectedServerNicId = null;
+    return;
+  }
+  if (!serverNicDrafts.some((nic) => nic.id === selectedServerNicId)) {
+    selectedServerNicId = serverNicDrafts[0].id;
+  }
+}
+
+function setServerNicEditorError(message = "") {
+  if (serverNicError) {
+    serverNicError.textContent = message;
+  }
+}
+
+function renderServerNicIpEditor() {
+  if (!serverNicIpList) {
+    return;
+  }
+
+  const nic = getSelectedServerNicDraft();
+  const primaryIp = String(serverForm?.elements?.staticIp?.value || "").trim();
+  const showPrimaryIp = Boolean(primaryIp) && nic?.adapterType === "management-os";
+  if (serverNicIpTitle) {
+    serverNicIpTitle.textContent = nic ? `IP Addresses: ${nic.name}` : "IP Addresses";
+  }
+  if (!nic) {
+    serverNicIpList.innerHTML = `<div class="server-nic-empty">Select a NIC to manage its IP addresses.</div>`;
+    if (addServerNicIpButton) {
+      addServerNicIpButton.disabled = true;
+    }
+    return;
+  }
+
+  if (addServerNicIpButton) {
+    addServerNicIpButton.disabled = false;
+  }
+
+  const subnetOptions = getNetworkSubnets();
+  if (!nic.ipAddresses.length && !showPrimaryIp) {
+    serverNicIpList.innerHTML = `<div class="server-nic-empty">No IP addresses assigned to this NIC.</div>`;
+    return;
+  }
+
+  const primaryRow = showPrimaryIp
+    ? `
+        <div class="server-nic-ip-row is-primary">
+          <label>
+            <span>Primary IP</span>
+            <input value="${escapeHtml(primaryIp)}" readonly />
+          </label>
+          <div class="server-nic-ip-primary-note">From Static IP above</div>
+        </div>
+      `
+    : "";
+
+  serverNicIpList.innerHTML = `
+    ${primaryRow}
+    ${nic.ipAddresses
+      .map((ip) => {
+      const subnetSelect = `
+        <select data-server-nic-ip-field="subnetId" data-server-nic-id="${escapeHtml(nic.id)}" data-server-nic-ip-id="${escapeHtml(ip.id)}">
+          <option value="">Auto-detect</option>
+          ${subnetOptions
+            .map(
+              (subnet) =>
+                `<option value="${escapeHtml(subnet.id)}"${subnet.id === ip.subnetId ? " selected" : ""}>${escapeHtml(subnet.label)}</option>`,
+            )
+            .join("")}
+        </select>
+      `;
+
+      return `
+        <div class="server-nic-ip-row" data-server-nic-ip-id="${escapeHtml(ip.id)}">
+          <label>
+            <span>IP Address</span>
+            <input data-server-nic-ip-field="address" data-server-nic-id="${escapeHtml(nic.id)}" data-server-nic-ip-id="${escapeHtml(ip.id)}" value="${escapeHtml(ip.address)}" placeholder="192.168.1.14" autocomplete="off" />
+          </label>
+          <label>
+            <span>Subnet</span>
+            ${subnetSelect}
+          </label>
+          <button type="button" class="danger-button server-nic-ip-remove" data-server-nic-ip-remove="${escapeHtml(ip.id)}" data-server-nic-id="${escapeHtml(nic.id)}">Remove</button>
+        </div>
+      `;
+      })
+      .join("")}
+  `;
+}
+
+function renderServerNicEditor() {
+  if (!serverNicList) {
+    return;
+  }
+
+  syncSelectedServerNic();
+  if (!serverNicDrafts.length) {
+    serverNicList.innerHTML = `<div class="server-nic-empty">No NIC adapters yet.</div>`;
+    renderServerNicIpEditor();
+    return;
+  }
+
+  serverNicList.innerHTML = serverNicDrafts
+    .map((nic, index) => {
+      const nicName = nic.name || getDefaultServerNicName(index, nic.adapterType);
+      const typeLabel = getNicTypeLabel(nic.adapterType);
+      const primaryIp = String(serverForm?.elements?.staticIp?.value || "").trim();
+      const visibleIpCount = nic.ipAddresses.length + (nic.adapterType === "management-os" && primaryIp ? 1 : 0);
+      const isSelected = nic.id === selectedServerNicId;
+      if (isSelected) {
+        return `
+          <div class="server-nic-card is-selected" data-server-nic-select="${escapeHtml(nic.id)}" tabindex="0" role="button">
+            <div class="server-nic-card-main">
+              <label>
+                <span>Name</span>
+                <input data-server-nic-field="name" data-server-nic-id="${escapeHtml(nic.id)}" value="${escapeHtml(nic.name)}" placeholder="${escapeHtml(nicName)}" autocomplete="off" />
+              </label>
+            </div>
+            <div class="server-nic-card-footer">
+              <div class="server-nic-card-meta">
+                <span class="server-nic-pill">${escapeHtml(typeLabel)}</span>
+                <span class="server-nic-pill">${escapeHtml(visibleIpCount)} IP${visibleIpCount === 1 ? "" : "s"}</span>
+              </div>
+              <button type="button" class="danger-button server-nic-remove" data-server-nic-remove="${escapeHtml(nic.id)}">Remove NIC</button>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="server-nic-card" data-server-nic-select="${escapeHtml(nic.id)}" tabindex="0" role="button">
+          <div class="server-nic-card-footer">
+            <div class="server-nic-card-meta">
+              <strong class="server-nic-name">${escapeHtml(nicName)}</strong>
+              <span class="server-nic-pill">${escapeHtml(typeLabel)}</span>
+              <span class="server-nic-pill">${escapeHtml(visibleIpCount)} IP${visibleIpCount === 1 ? "" : "s"}</span>
+            </div>
+            <button type="button" class="danger-button server-nic-remove" data-server-nic-remove="${escapeHtml(nic.id)}">Remove</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  renderServerNicIpEditor();
+}
+
+function addServerNicDraft() {
+  const adapterType = serverNicDrafts.length ? "physical" : "management-os";
+  const nic = normalizeServerNicDraft(
+    {
+      name: getDefaultServerNicName(serverNicDrafts.length, adapterType),
+      adapterType,
+      ipAddresses: [],
+    },
+    selectedServerId || "",
+  );
+  serverNicDrafts.push(nic);
+  selectedServerNicId = nic.id;
+  setServerNicEditorError("");
+  renderServerNicEditor();
+}
+
+function selectServerNicDraft(nicId) {
+  selectedServerNicId = nicId;
+  renderServerNicEditor();
+}
+
+function updateServerNicDraft(nicId, field, value) {
+  serverNicDrafts = serverNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          [field]: field === "vlanId" ? toNullableInteger(value) : typeof value === "string" ? value.trim() : value,
+        }
+      : nic,
+  );
+  setServerNicEditorError("");
+}
+
+function removeServerNicDraft(nicId) {
+  serverNicDrafts = serverNicDrafts.filter((nic) => nic.id !== nicId);
+  if (selectedServerNicId === nicId) {
+    selectedServerNicId = serverNicDrafts[0]?.id || null;
+  }
+  setServerNicEditorError("");
+  renderServerNicEditor();
+}
+
+function addServerNicIpDraft(nicId) {
+  serverNicDrafts = serverNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: [...nic.ipAddresses, normalizeServerNicIpDraft({ subnetId: getDefaultSubnetId() })],
+        }
+      : nic,
+  );
+  setServerNicEditorError("");
+  renderServerNicEditor();
+}
+
+function updateServerNicIpDraft(nicId, ipId, field, value) {
+  serverNicDrafts = serverNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: nic.ipAddresses.map((ip) =>
+            ip.id === ipId
+              ? {
+                  ...ip,
+                  [field]: typeof value === "string" ? value.trim() : value,
+                }
+              : ip,
+          ),
+        }
+      : nic,
+  );
+  setServerNicEditorError("");
+}
+
+function removeServerNicIpDraft(nicId, ipId) {
+  serverNicDrafts = serverNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: nic.ipAddresses.filter((ip) => ip.id !== ipId),
+        }
+      : nic,
+  );
+  setServerNicEditorError("");
+  renderServerNicEditor();
+}
+
+function buildServerNicsFromDrafts(serverId, primaryIp, nicDrafts) {
+  const drafts = nicDrafts.length ? nicDrafts : [normalizeServerNicDraft({ name: "Management", adapterType: "management-os" }, serverId)];
+  let primaryAssigned = false;
+
+  return drafts.map((draft, index) => {
+    const nicName = draft.name || getDefaultServerNicName(index, draft.adapterType);
+    const ipAddresses = draft.ipAddresses
+      .filter((ip) => ip.address)
+      .map((ip) => {
+        const subnet = ip.subnetId ? getSubnetById(ip.subnetId) : null;
+        const parsed = subnet ? parseSubnet(subnet.cidr) : null;
+        return normalizeIpAddress({
+          id: ip.id,
+          address: ip.address,
+          version: "IPv4",
+          cidrPrefix: parsed?.prefix ?? null,
+          subnetMask: parsed?.mask ?? "",
+          assignmentType: "static",
+          subnetId: ip.subnetId || "",
+          role: "",
+        });
+      });
+
+    if (!primaryAssigned && primaryIp) {
+      const hasPrimaryIp = ipAddresses.some((ip) => ip.address === primaryIp);
+      if (!hasPrimaryIp) {
+        const subnetId = ipAddresses[0]?.subnetId || getDefaultSubnetId();
+        const subnet = subnetId ? getSubnetById(subnetId) : null;
+        const parsed = subnet ? parseSubnet(subnet.cidr) : getCurrentSubnet();
+        ipAddresses.unshift(
+          normalizeIpAddress({
+            id: `ip-${serverId}-primary`,
+            address: primaryIp,
+            version: "IPv4",
+            cidrPrefix: parsed?.prefix ?? null,
+            subnetMask: parsed?.mask ?? "",
+            assignmentType: "static",
+            subnetId,
+            role: index === 0 ? "primary" : "",
+          }),
+        );
+      }
+      primaryAssigned = true;
+    }
+
+    return normalizeNic(
+      {
+        id: draft.id,
+        hostServerId: serverId,
+        name: nicName,
+        adapterType: draft.adapterType,
+        macAddress: draft.macAddress,
+        connectedVirtualSwitchId: draft.connectedVirtualSwitchId,
+        vlanId: draft.vlanId,
+        ipAddresses,
+      },
+      { hostServerId: serverId },
+    );
+  });
+}
+
 function getIpValidationMessage(ipAddress, subnet = getCurrentSubnet()) {
   const value = String(ipAddress || "").trim();
   if (!value) {
@@ -467,6 +912,151 @@ function normalizeGpuDevice(gpu, hostServerId = "") {
         : "missing-vm-link",
     notes: typeof safeGpu.notes === "string" ? safeGpu.notes.trim() : "",
   };
+}
+
+const NIC_ADAPTER_TYPES = ["physical", "vm", "management-os", "virtual-switch"];
+const IP_ROLES = [
+  "primary",
+  "secondary",
+  "alias",
+  "management",
+  "cluster",
+  "storage",
+  "migration",
+  "backup",
+  "public",
+  "private",
+];
+// Roles that uniquely describe why a NIC sits in a given subnet, so two NICs on
+// the same host sharing that subnet is intentional rather than ambiguous.
+const DISAMBIGUATING_ROLES = new Set([
+  "management",
+  "cluster",
+  "storage",
+  "migration",
+  "backup",
+  "public",
+  "private",
+]);
+
+function detectIpVersion(address) {
+  const value = String(address || "").trim();
+  if (!value) {
+    return "";
+  }
+  if (value.includes(":")) {
+    return "IPv6";
+  }
+  return parseIp(value) !== null ? "IPv4" : "";
+}
+
+function isValidIpAddress(address, version) {
+  const value = String(address || "").trim();
+  if (!value) {
+    return false;
+  }
+  if (version === "IPv6") {
+    return value.includes(":") && /^[0-9a-f:]+$/i.test(value);
+  }
+  return parseIp(value) !== null;
+}
+
+function normalizeDnsServers(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[\s,]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function toNullableInteger(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isInteger(number) ? number : null;
+}
+
+function normalizeIpAddress(ip) {
+  const safeIp = ip && typeof ip === "object" ? ip : {};
+  const address = typeof safeIp.address === "string" ? safeIp.address.trim() : "";
+  const version =
+    safeIp.version === "IPv6" || safeIp.version === "IPv4"
+      ? safeIp.version
+      : detectIpVersion(address) || "IPv4";
+
+  return {
+    id: typeof safeIp.id === "string" && safeIp.id.trim() ? safeIp.id : `ip-${crypto.randomUUID()}`,
+    address,
+    version,
+    cidrPrefix: toNullableInteger(safeIp.cidrPrefix),
+    subnetMask: typeof safeIp.subnetMask === "string" ? safeIp.subnetMask.trim() : "",
+    gateway: typeof safeIp.gateway === "string" ? safeIp.gateway.trim() : "",
+    dnsServers: normalizeDnsServers(safeIp.dnsServers),
+    assignmentType: safeIp.assignmentType === "dhcp" ? "dhcp" : "static",
+    role: typeof safeIp.role === "string" && safeIp.role.trim() ? safeIp.role.trim() : "",
+    subnetId: typeof safeIp.subnetId === "string" ? safeIp.subnetId.trim() : "",
+    notes: typeof safeIp.notes === "string" ? safeIp.notes.trim() : "",
+  };
+}
+
+function normalizeNic(nic, { hostServerId = "", vmId = "" } = {}) {
+  const safeNic = nic && typeof nic === "object" ? nic : {};
+  const adapterType = NIC_ADAPTER_TYPES.includes(safeNic.adapterType)
+    ? safeNic.adapterType
+    : vmId
+      ? "vm"
+      : "physical";
+
+  return {
+    id: typeof safeNic.id === "string" && safeNic.id.trim() ? safeNic.id : `nic-${crypto.randomUUID()}`,
+    hostServerId:
+      typeof safeNic.hostServerId === "string" && safeNic.hostServerId.trim()
+        ? safeNic.hostServerId
+        : hostServerId,
+    vmId: typeof safeNic.vmId === "string" && safeNic.vmId.trim() ? safeNic.vmId : vmId || "",
+    name: typeof safeNic.name === "string" && safeNic.name.trim() ? safeNic.name.trim() : "Network Adapter",
+    adapterType,
+    macAddress: typeof safeNic.macAddress === "string" ? safeNic.macAddress.trim() : "",
+    connectedVirtualSwitchId:
+      typeof safeNic.connectedVirtualSwitchId === "string" ? safeNic.connectedVirtualSwitchId.trim() : "",
+    vlanId: toNullableInteger(safeNic.vlanId),
+    ipAddresses: Array.isArray(safeNic.ipAddresses) ? safeNic.ipAddresses.map(normalizeIpAddress) : [],
+  };
+}
+
+// Build a host management adapter from a legacy single staticIp so existing
+// configs keep showing their address once the NIC model is introduced.
+function makeManagementNic(staticIp, serverId) {
+  const address = String(staticIp || "").trim();
+  const subnet = getCurrentSubnet();
+  return normalizeNic(
+    {
+      id: `nic-${serverId}-mgmt`,
+      hostServerId: serverId,
+      name: "Management",
+      adapterType: "management-os",
+      ipAddresses: address
+        ? [
+            {
+              id: `ip-${serverId}-mgmt`,
+              address,
+              version: "IPv4",
+              cidrPrefix: subnet ? subnet.prefix : null,
+              subnetMask: subnet ? subnet.mask : "",
+              assignmentType: "static",
+              role: "management",
+            },
+          ]
+        : [],
+    },
+    { hostServerId: serverId },
+  );
 }
 
 function parseGpuSlotCount(value, fallback = 0) {
@@ -868,6 +1458,13 @@ function getNextAvailableIp(excludeServerId = null) {
 
 function normalizeServer(server) {
   const safeServer = server && typeof server === "object" ? server : {};
+  let nics = Array.isArray(safeServer.nics)
+    ? safeServer.nics.map((nic) => normalizeNic(nic, { hostServerId: safeServer.id }))
+    : [];
+  if (!nics.length && typeof safeServer.staticIp === "string" && safeServer.staticIp.trim()) {
+    nics = [makeManagementNic(safeServer.staticIp, safeServer.id)];
+  }
+
   return {
     ...safeServer,
     staticIp: typeof safeServer.staticIp === "string" ? safeServer.staticIp : "",
@@ -877,6 +1474,7 @@ function normalizeServer(server) {
     gpuDevices: Array.isArray(safeServer.gpuDevices)
       ? safeServer.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, safeServer.id))
       : [],
+    nics,
   };
 }
 
@@ -912,13 +1510,82 @@ function normalizeVm(vm) {
     hostServerId: typeof safeVm.hostServerId === "string" ? safeVm.hostServerId : "",
     gpuPassthrough: normalizeGpuPassthrough(safeVm.gpuPassthrough),
     gpuPassthroughWarning: typeof safeVm.gpuPassthroughWarning === "string" ? safeVm.gpuPassthroughWarning : "",
+    nics: Array.isArray(safeVm.nics)
+      ? safeVm.nics.map((nic) =>
+          normalizeNic(nic, { hostServerId: safeVm.hostServerId || "", vmId: safeVm.id }),
+        )
+      : [],
   };
+}
+
+function normalizeDesktopExtraIpDraft(ip) {
+  return {
+    id: typeof ip?.id === "string" && ip.id ? ip.id : `deskip-${crypto.randomUUID()}`,
+    address: typeof ip?.address === "string" ? ip.address.trim() : "",
+  };
+}
+
+function renderDesktopExtraIps() {
+  if (!desktopExtraIpList) {
+    return;
+  }
+  desktopExtraIpList.innerHTML = desktopExtraIpDrafts
+    .map(
+      (ip) => `
+      <div class="desktop-extra-ip-row">
+        <input value="${escapeHtml(ip.address)}" placeholder="e.g. 10.0.0.5" autocomplete="off" data-desktop-ip-id="${escapeHtml(ip.id)}" />
+        <button type="button" class="danger-button desktop-extra-ip-remove" data-desktop-ip-remove="${escapeHtml(ip.id)}">Remove</button>
+      </div>`,
+    )
+    .join("");
 }
 
 function normalizeInfrastructureNode(node) {
   return {
     ...node,
     staticIp: typeof node.staticIp === "string" ? node.staticIp : "",
+    extraIps: Array.isArray(node.extraIps)
+      ? node.extraIps.filter((ip) => typeof ip === "string" && ip.trim())
+      : [],
+  };
+}
+
+function normalizeSubnet(subnet, index) {
+  const safeSubnet = subnet && typeof subnet === "object" ? subnet : {};
+  const cidr = typeof safeSubnet.cidr === "string" ? safeSubnet.cidr.trim() : "";
+  return {
+    id: typeof safeSubnet.id === "string" && safeSubnet.id.trim() ? safeSubnet.id : `subnet-${index + 1}`,
+    label:
+      typeof safeSubnet.label === "string" && safeSubnet.label.trim()
+        ? safeSubnet.label.trim()
+        : `Subnet ${index + 1}`,
+    cidr,
+  };
+}
+
+// The network now keeps an ordered list of subnets. The first entry is the
+// primary "server subnet" used by the existing host/desktop addressing logic,
+// and additional entries let NIC IP addresses live on other networks.
+function normalizeNetwork(rawNetwork, fallbackNetwork) {
+  const safeNetwork = rawNetwork && typeof rawNetwork === "object" ? rawNetwork : {};
+  const primaryCidr =
+    typeof safeNetwork.serverSubnet === "string" && safeNetwork.serverSubnet.trim()
+      ? safeNetwork.serverSubnet.trim()
+      : fallbackNetwork.serverSubnet;
+
+  let subnets = Array.isArray(safeNetwork.subnets)
+    ? safeNetwork.subnets.map(normalizeSubnet).filter((subnet) => parseSubnet(subnet.cidr))
+    : [];
+
+  if (!subnets.length) {
+    subnets = [{ id: "subnet-primary", label: "Server Subnet", cidr: primaryCidr }];
+  } else if (!subnets.some((subnet) => subnet.cidr === primaryCidr) && parseSubnet(primaryCidr)) {
+    subnets.unshift({ id: "subnet-primary", label: "Server Subnet", cidr: primaryCidr });
+  }
+
+  return {
+    serverSubnet: subnets[0].cidr,
+    subnets,
   };
 }
 
@@ -929,12 +1596,7 @@ function normalizeConfig(config) {
 
   return {
     servers: (Array.isArray(safeConfig.servers) ? safeConfig.servers : fallback.servers).map(normalizeServer),
-    network: {
-      serverSubnet:
-        typeof safeNetwork.serverSubnet === "string" && safeNetwork.serverSubnet.trim()
-          ? safeNetwork.serverSubnet
-          : fallback.network.serverSubnet,
-    },
+    network: normalizeNetwork(safeNetwork, fallback.network),
     infrastructureNodes: Array.isArray(safeConfig.infrastructureNodes)
       ? safeConfig.infrastructureNodes.map(normalizeInfrastructureNode)
       : fallback.infrastructureNodes.map(normalizeInfrastructureNode),
@@ -1370,6 +2032,7 @@ function getServerFormData() {
     storage: String(formData.get("storage")).trim(),
     gpus: String(formData.get("gpus")).trim(),
     physicalGpuSlots: parseGpuSlotCount(formData.get("gpuSlots")),
+    nics: clone(serverNicDrafts),
     gpuDevices: clone(gpuDraftDevices),
   };
 }
@@ -1383,8 +2046,12 @@ function fillServerForm(server) {
   serverForm.elements.storage.value = server.storage;
   serverForm.elements.gpus.value = server.gpus;
   serverGpuSlotsInput.value = parseGpuSlotCount(server.physicalGpuSlots);
+  serverNicDrafts = getServerNicDraftsFromServer(server);
+  selectedServerNicId = getEditableServerNic(server)?.id || serverNicDrafts[0]?.id || null;
   gpuDraftDevices = clone(server.gpuDevices || []);
   selectedGpuId = null;
+  setServerNicEditorError("");
+  renderServerNicEditor();
   resetGpuForm();
 }
 
@@ -1393,6 +2060,8 @@ function resetServerForm() {
   selectedNodeId = null;
   joinMode = false;
   selectedGpuId = null;
+  serverNicDrafts = [normalizeServerNicDraft({ name: "Management", adapterType: "management-os", ipAddresses: [] })];
+  selectedServerNicId = serverNicDrafts[0].id;
   gpuDraftDevices = [];
   serverForm.elements.name.value = getNextServerName();
   serverForm.elements.staticIp.value = getNextAvailableIp();
@@ -1402,6 +2071,8 @@ function resetServerForm() {
   serverForm.elements.storage.value = "3 TB SSD";
   serverForm.elements.gpus.value = "None";
   serverGpuSlotsInput.value = 0;
+  setServerNicEditorError("");
+  renderServerNicEditor();
   resetGpuForm();
   render();
 }
@@ -1458,6 +2129,328 @@ function selectServerForEdit(serverId) {
   joinMode = false;
   fillServerForm(server);
   render();
+}
+
+function getServerNicList(server) {
+  return Array.isArray(server?.nics) ? server.nics : [];
+}
+
+function getVmNicList(vm) {
+  return Array.isArray(vm?.nics) ? vm.nics : [];
+}
+
+// Flatten every adapter in the topology with its owning server/VM context so the
+// IP management view and validation engine can reason about NICs uniformly.
+function getAllNicEntries() {
+  const entries = [];
+  servers.forEach((server) => {
+    getServerNicList(server).forEach((nic) => {
+      entries.push({ nic, server, vm: null });
+    });
+  });
+  vms.forEach((vm) => {
+    getVmNicList(vm).forEach((nic) => {
+      const host = getVmHostServer(vm.id) || getServer(nic.hostServerId);
+      entries.push({ nic, server: host || null, vm });
+    });
+  });
+  return entries;
+}
+
+function getAllIpEntries() {
+  const rows = [];
+  getAllNicEntries().forEach(({ nic, server, vm }) => {
+    nic.ipAddresses.forEach((ip) => {
+      rows.push({ ip, nic, server, vm });
+    });
+  });
+  return rows;
+}
+
+function getIpEffectivePrefix(ip) {
+  if (Number.isInteger(ip.cidrPrefix)) {
+    return ip.cidrPrefix;
+  }
+  if (ip.subnetMask) {
+    return maskToPrefix(ip.subnetMask);
+  }
+  return null;
+}
+
+function getIpv4Network(address, prefix) {
+  const ipNumber = parseIp(address);
+  if (ipNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return null;
+  }
+  const blockSize = 2 ** (32 - prefix);
+  return Math.floor(ipNumber / blockSize) * blockSize;
+}
+
+function formatIpCidr(ip) {
+  if (!ip.address) {
+    return "";
+  }
+  const prefix = getIpEffectivePrefix(ip);
+  return Number.isInteger(prefix) ? `${ip.address}/${prefix}` : ip.address;
+}
+
+function emptyNetworkValidation() {
+  return { ipMessages: new Map(), nicMessages: new Map(), warnings: [] };
+}
+
+let networkValidation = emptyNetworkValidation();
+
+// Run every networking validation rule once per render and cache the results so
+// cards, the IP table, and the warnings banner all share the same findings.
+function computeNetworkValidation() {
+  const result = emptyNetworkValidation();
+  const subnet = getCurrentSubnet();
+  const ipEntries = getAllIpEntries();
+  const nicEntries = getAllNicEntries();
+
+  const addIpMessage = (ipId, message) => {
+    if (!result.ipMessages.has(ipId)) {
+      result.ipMessages.set(ipId, []);
+    }
+    result.ipMessages.get(ipId).push(message);
+  };
+  const addNicMessage = (nicId, message) => {
+    if (!result.nicMessages.has(nicId)) {
+      result.nicMessages.set(nicId, []);
+    }
+    result.nicMessages.get(nicId).push(message);
+  };
+
+  // Rule: warn if the same static IP address appears on more than one adapter.
+  const staticAddressOwners = new Map();
+  ipEntries.forEach(({ ip, nic }) => {
+    if (ip.assignmentType === "static" && ip.address) {
+      const key = ip.address.toLowerCase();
+      if (!staticAddressOwners.has(key)) {
+        staticAddressOwners.set(key, new Set());
+      }
+      staticAddressOwners.get(key).add(nic.id);
+    }
+  });
+
+  ipEntries.forEach(({ ip, nic, server, vm }) => {
+    const ownerLabel = vm ? `VM ${vm.name}` : server ? server.name : "Unassigned";
+
+    if (ip.address && !isValidIpAddress(ip.address, ip.version)) {
+      addIpMessage(ip.id, `Invalid ${ip.version} address`);
+    }
+
+    // Rule: warn if a static IPv4 address sits outside its subnet CIDR.
+    if (ip.address && ip.version === "IPv4" && ip.assignmentType === "static") {
+      const subnetMessage = getNicIpSubnetMessage(ip);
+      if (subnetMessage) {
+        addIpMessage(ip.id, subnetMessage);
+      }
+    }
+
+    // Rule: warn if the same static IP appears on more than one adapter.
+    if (ip.assignmentType === "static" && ip.address) {
+      const owners = staticAddressOwners.get(ip.address.toLowerCase());
+      if (owners && owners.size > 1) {
+        addIpMessage(ip.id, "Duplicate static IP used on multiple adapters");
+      }
+    }
+
+    // Rule: warn if a non-primary IP carries its own gateway.
+    if (ip.gateway && ip.role !== "primary" && ip.role !== "management") {
+      addIpMessage(ip.id, `${ip.role} IP should inherit the default route, not set a gateway`);
+    }
+
+    if (result.ipMessages.has(ip.id)) {
+      const detail = `${ownerLabel} · ${nic.name} · ${ip.address || "no address"}`;
+      result.ipMessages.get(ip.id).forEach((message) => {
+        result.warnings.push(`${detail}: ${message}`);
+      });
+    }
+  });
+
+  nicEntries.forEach(({ nic, server, vm }) => {
+    const ownerLabel = vm ? `VM ${vm.name}` : server ? server.name : "Unassigned";
+
+    // Rule: only one IPv4 address may be primary per NIC.
+    const primaryIpv4 = nic.ipAddresses.filter((ip) => ip.version === "IPv4" && ip.role === "primary");
+    if (primaryIpv4.length > 1) {
+      addNicMessage(nic.id, "More than one IPv4 address marked primary");
+    }
+
+    // Rule: warn if a NIC has multiple default gateways.
+    const gateways = nic.ipAddresses.filter((ip) => ip.gateway).map((ip) => ip.gateway);
+    if (new Set(gateways).size > 1) {
+      addNicMessage(nic.id, "Multiple default gateways on one adapter");
+    }
+
+    // Rule: warn if a VM network adapter has no IP address.
+    if ((vm || nic.adapterType === "vm") && nic.ipAddresses.length === 0) {
+      addNicMessage(nic.id, "VM network adapter has no IP address");
+    }
+
+    if (result.nicMessages.has(nic.id)) {
+      result.nicMessages.get(nic.id).forEach((message) => {
+        result.warnings.push(`${ownerLabel} · ${nic.name}: ${message}`);
+      });
+    }
+  });
+
+  // Rule: warn if two NICs on the same host share a subnet without a clear role.
+  const hostNetworkMap = new Map();
+  nicEntries.forEach(({ nic, server }) => {
+    if (!server) {
+      return;
+    }
+    nic.ipAddresses.forEach((ip) => {
+      if (ip.version !== "IPv4" || !ip.address) {
+        return;
+      }
+      const prefix = getIpEffectivePrefix(ip) ?? (subnet ? subnet.prefix : null);
+      const network = getIpv4Network(ip.address, prefix);
+      if (network === null) {
+        return;
+      }
+      const key = `${server.id}|${network}/${prefix}`;
+      if (!hostNetworkMap.has(key)) {
+        hostNetworkMap.set(key, { server, members: new Map() });
+      }
+      hostNetworkMap.get(key).members.set(nic.id, { nic, role: ip.role });
+    });
+  });
+
+  hostNetworkMap.forEach(({ server, members }) => {
+    if (members.size < 2) {
+      return;
+    }
+    const roleList = [...members.values()].map((member) => member.role);
+    const allDisambiguated =
+      roleList.every((role) => DISAMBIGUATING_ROLES.has(role)) && new Set(roleList).size === roleList.length;
+    if (!allDisambiguated) {
+      const nicNames = [...members.values()].map((member) => member.nic.name).join(", ");
+      result.warnings.push(
+        `${server.name}: NICs ${nicNames} share a subnet without distinct roles, which may cause routing ambiguity`,
+      );
+    }
+  });
+
+  return result;
+}
+
+function getNicStatus(nic) {
+  const messages = [];
+  if (networkValidation.nicMessages.has(nic.id)) {
+    messages.push(...networkValidation.nicMessages.get(nic.id));
+  }
+  nic.ipAddresses.forEach((ip) => {
+    if (networkValidation.ipMessages.has(ip.id)) {
+      messages.push(...networkValidation.ipMessages.get(ip.id));
+    }
+  });
+  return { level: messages.length ? "warning" : "ok", messages };
+}
+
+function getIpStatus(ip, nic) {
+  const messages = [];
+  if (networkValidation.ipMessages.has(ip.id)) {
+    messages.push(...networkValidation.ipMessages.get(ip.id));
+  }
+  if (nic && networkValidation.nicMessages.has(nic.id)) {
+    messages.push(...networkValidation.nicMessages.get(nic.id));
+  }
+  return { level: messages.length ? "warning" : "ok", messages };
+}
+
+function makeNicIpLine(ip, nic) {
+  const status = getIpStatus(ip, nic);
+  const cidr = formatIpCidr(ip) || "no address";
+  const tags = [];
+  if (ip.role) {
+    tags.push(ip.role);
+  }
+  if (ip.version === "IPv6") {
+    tags.push("IPv6");
+  }
+  if (ip.assignmentType === "dhcp") {
+    tags.push("DHCP");
+  }
+  const title = status.messages.length ? ` title="${escapeHtml(status.messages.join(" · "))}"` : "";
+  return `
+    <li class="nic-ip ${status.level === "warning" ? "is-warning" : ""}"${title}>
+      <span class="nic-ip-addr">${escapeHtml(cidr)}</span>
+      ${tags.map((tag) => `<span class="nic-ip-tag">${escapeHtml(tag)}</span>`).join("")}
+    </li>
+  `;
+}
+
+function getNicTypeLabel(adapterType) {
+  switch (adapterType) {
+    case "management-os":
+      return "Mgmt OS";
+    case "virtual-switch":
+      return "vSwitch";
+    case "physical":
+      return "Physical";
+    case "vm":
+      return "VM";
+    default:
+      return adapterType || "NIC";
+  }
+}
+
+function makeNicBlock(nic) {
+  const status = getNicStatus(nic);
+  const meta = [];
+  if (nic.macAddress) {
+    meta.push({ label: escapeHtml(nic.macAddress), tone: "neutral" });
+  }
+  if (nic.connectedVirtualSwitchId) {
+    meta.push({ label: escapeHtml(nic.connectedVirtualSwitchId), tone: "accent" });
+  }
+  if (Number.isInteger(nic.vlanId)) {
+    meta.push({ label: `VLAN ${escapeHtml(nic.vlanId)}`, tone: "accent" });
+  }
+
+  const ipList = nic.ipAddresses.length
+    ? `<ul class="nic-ip-list">${nic.ipAddresses.map((ip) => makeNicIpLine(ip, nic)).join("")}</ul>`
+    : `<div class="nic-empty">No IP addresses</div>`;
+
+  return `
+    <div class="nic-block ${status.level === "warning" ? "is-warning" : ""}">
+      <div class="nic-head">
+        <strong>${escapeHtml(nic.name)}</strong>
+        <span class="nic-type">${escapeHtml(getNicTypeLabel(nic.adapterType))}</span>
+      </div>
+      ${meta.length ? `<div class="nic-meta">${meta.map((item) => `<span class="nic-meta-chip ${item.tone}">${item.label}</span>`).join("")}</div>` : ""}
+      ${ipList}
+    </div>
+  `;
+}
+
+function makeServerNics(server) {
+  const nics = getServerNicList(server);
+  if (!nics.length) {
+    return "";
+  }
+  return `
+    <div class="nic-panel">
+      <strong class="nic-panel-title">NICs</strong>
+      ${nics.map((nic) => makeNicBlock(nic)).join("")}
+    </div>
+  `;
+}
+
+function makeVmNics(vm) {
+  const nics = getVmNicList(vm);
+  if (!nics.length) {
+    return "";
+  }
+  return `
+    <div class="vm-nic-panel">
+      <strong>Network Adapters</strong>
+      ${nics.map((nic) => makeNicBlock(nic)).join("")}
+    </div>
+  `;
 }
 
 function makeServerGpuAssignments(server) {
@@ -1602,6 +2595,7 @@ function makeVmCard(vm) {
     <span>${escapeHtml(vm.size)}</span>
     ${makeVmNumaDetails(vm)}
     ${makeVmGpuDetails(vm)}
+    ${makeVmNics(vm)}
   `;
   card.addEventListener("dragstart", (event) => {
     event.dataTransfer.setData("text/plain", vm.id);
@@ -1715,6 +2709,7 @@ function makeNodeElement(node) {
         ${makeServerStatusStrip(server)}
         ${makeServerDetailLine(server)}
         ${makeServerGpuAssignments(server)}
+        ${makeServerNics(server)}
         <div class="vm-bay" aria-label="VMs loaded on ${escapeHtml(server.name)}"></div>
       </div>
     `;
@@ -1748,6 +2743,7 @@ function makeNodeElement(node) {
         <strong>${escapeHtml(node.name)}</strong>
       </div>
       ${makeIpChip(node.staticIp, "desktop-ip-chip")}
+      ${(node.extraIps || []).map((ip) => makeIpChip(ip, "desktop-ip-chip")).join("")}
     `;
   }
 
@@ -1909,6 +2905,89 @@ function renderVmPool() {
     });
 }
 
+function renderIpManagement() {
+  if (!ipTableBody) {
+    return;
+  }
+
+  const rows = getAllIpEntries();
+  // Prepend desktop IPs (primary + extras) as simple rows
+  const desktopNode = getInfrastructureNode("desktop");
+  const desktopRows = desktopNode
+    ? [
+        ...(desktopNode.staticIp ? [{ address: desktopNode.staticIp, role: "primary" }] : []),
+        ...(desktopNode.extraIps || []).map((addr) => ({ address: addr, role: "" })),
+      ].map((ipInfo) => ({ ipInfo, node: desktopNode }))
+    : [];
+
+  if (ipWarnings) {
+    if (networkValidation.warnings.length) {
+      ipWarnings.classList.add("has-warnings");
+      ipWarnings.innerHTML = `
+        <strong>${networkValidation.warnings.length} networking warning${
+          networkValidation.warnings.length === 1 ? "" : "s"
+        }</strong>
+        <ul>${networkValidation.warnings.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}</ul>
+      `;
+    } else {
+      ipWarnings.classList.remove("has-warnings");
+      ipWarnings.innerHTML = `<span class="ip-warnings-clear">No networking warnings detected.</span>`;
+    }
+  }
+
+  if (ipCount) {
+    ipCount.textContent = rows.length + desktopRows.length;
+  }
+
+  if (!rows.length && !desktopRows.length) {
+    ipTableBody.innerHTML = `<tr><td colspan="9" class="ip-empty">No IP addresses assigned yet.</td></tr>`;
+    return;
+  }
+
+  const desktopRowsHtml = desktopRows
+    .map(
+      ({ ipInfo, node }) => `
+        <tr>
+          <td>${escapeHtml(ipInfo.address)}</td>
+          <td>—</td>
+          <td>${escapeHtml(node.name)}</td>
+          <td>desktop</td>
+          <td>—</td>
+          <td>—</td>
+          <td>${escapeHtml(ipInfo.role)}</td>
+          <td>static</td>
+          <td><span class="ip-status is-ok">OK</span></td>
+        </tr>`,
+    )
+    .join("");
+
+  ipTableBody.innerHTML =
+    desktopRowsHtml +
+    rows
+    .map(({ ip, nic, server, vm }) => {
+      const status = getIpStatus(ip, nic);
+      const subnetText = describeIpSubnet(ip);
+      const statusCell = status.messages.length
+        ? `<span class="ip-status is-warning" title="${escapeHtml(status.messages.join(" · "))}">Warning</span>`
+        : `<span class="ip-status is-ok">OK</span>`;
+
+      return `
+        <tr class="${status.level === "warning" ? "is-warning" : ""}">
+          <td>${escapeHtml(ip.address || "—")}</td>
+          <td>${escapeHtml(subnetText)}</td>
+          <td>${escapeHtml(nic.name)}</td>
+          <td>${escapeHtml(nic.adapterType)}</td>
+          <td>${escapeHtml(server ? server.name : "—")}</td>
+          <td>${escapeHtml(vm ? vm.name : "—")}</td>
+          <td>${escapeHtml(ip.role || "—")}</td>
+          <td>${escapeHtml(ip.assignmentType)}</td>
+          <td>${statusCell}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
 function renderCounters() {
   serverCount.textContent = servers.length;
   linkCount.textContent = links.length;
@@ -1925,6 +3004,7 @@ function renderNetworkSettings() {
   if (desktop && document.activeElement !== desktopIpInput) {
     desktopIpInput.value = desktop.staticIp || getNextAvailableIp("desktop");
   }
+  renderDesktopExtraIps();
 
   const subnet = parseSubnet(subnetInput.value || savedSubnet);
 
@@ -1940,6 +3020,84 @@ function renderNetworkSettings() {
     <span><strong>IPs</strong>${escapeHtml(formatTypedSubnetHint(subnet))}</span>
   `;
   subnetSummary.classList.remove("is-error");
+  renderSubnetList();
+}
+
+function renderSubnetList() {
+  if (!subnetList) {
+    return;
+  }
+
+  const subnets = getNetworkSubnets();
+  if (!subnets.length) {
+    subnetList.innerHTML = `<div class="subnet-empty">No subnets defined yet.</div>`;
+    return;
+  }
+
+  subnetList.innerHTML = subnets
+    .map((subnet, index) => {
+      const parsed = parseSubnet(subnet.cidr);
+      const isPrimary = index === 0;
+      const cidrText = parsed ? parsed.cidr : subnet.cidr || "—";
+      const action = isPrimary
+        ? `<span class="subnet-tag">Primary</span>`
+        : `<button type="button" class="subnet-remove" data-subnet-id="${escapeHtml(subnet.id)}" aria-label="Remove ${escapeHtml(subnet.label)}">Remove</button>`;
+      return `
+        <div class="subnet-row ${parsed ? "" : "is-error"}">
+          <div class="subnet-row-main">
+            <strong>${escapeHtml(subnet.label)}</strong>
+            <span>${escapeHtml(cidrText)}</span>
+          </div>
+          ${action}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function addSubnet(label, cidrText) {
+  const parsed = parseSubnet(cidrText);
+  if (!parsed) {
+    return "Use CIDR like 10.0.20.0/24 or mask style like 10.0.20.0 255.255.255.0.";
+  }
+
+  if (!Array.isArray(network.subnets)) {
+    network.subnets = [];
+  }
+
+  if (network.subnets.some((subnet) => parseSubnet(subnet.cidr)?.cidr === parsed.cidr)) {
+    return "That subnet is already defined.";
+  }
+
+  const baseId = slugify(label) || `subnet-${network.subnets.length + 1}`;
+  let id = baseId;
+  let suffix = 2;
+  while (network.subnets.some((subnet) => subnet.id === id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  network.subnets.push({
+    id,
+    label: label.trim() || `Subnet ${network.subnets.length + 1}`,
+    cidr: cidrText.trim(),
+  });
+  render();
+  saveConfig();
+  return "";
+}
+
+function removeSubnet(subnetId) {
+  if (!Array.isArray(network.subnets)) {
+    return;
+  }
+  const index = network.subnets.findIndex((subnet) => subnet.id === subnetId);
+  if (index <= 0) {
+    return;
+  }
+  network.subnets.splice(index, 1);
+  render();
+  saveConfig();
 }
 
 function renderJoinState() {
@@ -1961,6 +3119,7 @@ function renderServerFormState() {
     : "Create a new server";
   serverSubmit.textContent = isEditing ? "Save Changes" : "Add Server";
   deleteServerButton.disabled = !isEditing;
+  renderServerNicEditor();
 }
 
 function renderVmFormState() {
@@ -1980,6 +3139,7 @@ function renderVmFormState() {
 
 function render() {
   syncGpuAssignments();
+  networkValidation = computeNetworkValidation();
   renderCounters();
   renderNetworkSettings();
   renderJoinState();
@@ -1989,6 +3149,7 @@ function render() {
   renderNodes();
   requestAnimationFrame(renderLinks);
   renderVmPool();
+  renderIpManagement();
 }
 
 function createVm(values) {
@@ -2008,6 +3169,7 @@ function createVm(values) {
     cpu: values.cpu,
     ram: values.ram,
     size: values.size,
+    nics: [],
   });
   selectedVmId = id;
 }
@@ -2080,6 +3242,7 @@ function createServer(values) {
     gpus: values.gpus,
     physicalGpuSlots: values.physicalGpuSlots,
     gpuDevices: values.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, id)),
+    nics: buildServerNicsFromDrafts(id, values.staticIp || getNextAvailableIp(), values.nics),
     vmIds: [],
     x: position.x,
     y: position.y,
@@ -2106,6 +3269,7 @@ function updateSelectedServer(values) {
   server.gpus = values.gpus;
   server.physicalGpuSlots = values.physicalGpuSlots;
   server.gpuDevices = values.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, server.id));
+  server.nics = buildServerNicsFromDrafts(server.id, server.staticIp, values.nics);
 }
 
 function saveServer(event) {
@@ -2118,7 +3282,47 @@ function saveServer(event) {
     ? servers.some((server) => server.id !== selectedServerId && server.staticIp === values.staticIp) ||
       desktop?.staticIp === values.staticIp
     : false;
-
+  const allServerIpAddresses = [values.staticIp, ...values.nics.flatMap((nic) => nic.ipAddresses.map((ip) => ip.address))]
+    .map((address) => String(address || "").trim())
+    .filter(Boolean);
+  const seenServerIps = new Set();
+  const duplicateFormIp = allServerIpAddresses.find((address) => {
+    const normalized = address.toLowerCase();
+    if (seenServerIps.has(normalized)) {
+      return true;
+    }
+    seenServerIps.add(normalized);
+    return false;
+  });
+  const draftIpEntries = values.nics.flatMap((nic) => nic.ipAddresses.map((ip) => ({ nic, ip })));
+  const duplicateExistingNicIp = draftIpEntries.find(({ ip }) => {
+    if (!ip.address) {
+      return false;
+    }
+    return getAllIpEntries().some(({ ip: existingIp, server, vm }) => {
+      if (!existingIp.address || existingIp.assignmentType !== "static") {
+        return false;
+      }
+      if (vm) {
+        return existingIp.address === ip.address;
+      }
+      return server?.id !== selectedServerId && existingIp.address === ip.address;
+    });
+  });
+  const invalidAdditionalIp = draftIpEntries.find(({ ip }) => ip.address && parseIp(ip.address) === null);
+  const invalidAdditionalSubnet = draftIpEntries.find(({ ip }) => {
+    if (!ip.address) {
+      return false;
+    }
+    const probeIp = normalizeIpAddress({
+      address: ip.address,
+      version: "IPv4",
+      assignmentType: "static",
+      subnetId: ip.subnetId,
+      role: "",
+    });
+    return Boolean(getNicIpSubnetMessage(probeIp));
+  });
   if (values.staticIp && staticIpNumber === null) {
     serverForm.elements.staticIp.setCustomValidity("Use a valid IPv4 address.");
     serverForm.reportValidity();
@@ -2134,6 +3338,33 @@ function saveServer(event) {
   if (duplicateIp) {
     serverForm.elements.staticIp.setCustomValidity("Use an IP address that is not already assigned.");
     serverForm.reportValidity();
+    return;
+  }
+
+  if (duplicateFormIp) {
+    setServerNicEditorError("Each server IP must be unique on the form.");
+    return;
+  }
+
+  if (invalidAdditionalIp) {
+    setServerNicEditorError(`Use a valid IPv4 address for ${invalidAdditionalIp.ip.address || "the NIC IP"}.`);
+    return;
+  }
+
+  if (duplicateExistingNicIp) {
+    setServerNicEditorError(`IP address ${duplicateExistingNicIp.ip.address} is already assigned elsewhere.`);
+    return;
+  }
+
+  if (invalidAdditionalSubnet) {
+    const probeIp = normalizeIpAddress({
+      address: invalidAdditionalSubnet.ip.address,
+      version: "IPv4",
+      assignmentType: "static",
+      subnetId: invalidAdditionalSubnet.ip.subnetId,
+      role: "",
+    });
+    setServerNicEditorError(getNicIpSubnetMessage(probeIp));
     return;
   }
 
@@ -2153,6 +3384,7 @@ function saveServer(event) {
   serverForm.elements.staticIp.setCustomValidity("");
   serverCoresPerChipInput.setCustomValidity("");
   serverGpuSlotsInput.setCustomValidity("");
+  setServerNicEditorError("");
 
   if (selectedServerId) {
     updateSelectedServer(values);
@@ -2205,9 +3437,15 @@ function saveNetworkSettings(event) {
   subnetInput.setCustomValidity("");
   desktopIpInput.setCustomValidity("");
   network.serverSubnet = subnetText;
+  if (!Array.isArray(network.subnets) || !network.subnets.length) {
+    network.subnets = [{ id: "subnet-primary", label: "Server Subnet", cidr: subnetText }];
+  } else {
+    network.subnets[0] = { ...network.subnets[0], cidr: subnetText };
+  }
   const desktop = getInfrastructureNode("desktop");
   if (desktop) {
     desktop.staticIp = desktopIp || getNextAvailableIp("desktop");
+    desktop.extraIps = desktopExtraIpDrafts.map((ip) => ip.address).filter(Boolean);
   }
   render();
   saveConfig();
@@ -2233,6 +3471,106 @@ function deleteSelectedServer() {
 serverForm.addEventListener("submit", saveServer);
 vmForm.addEventListener("submit", saveVm);
 networkForm.addEventListener("submit", saveNetworkSettings);
+if (addServerNicButton) {
+  addServerNicButton.addEventListener("click", addServerNicDraft);
+}
+if (addServerNicIpButton) {
+  addServerNicIpButton.addEventListener("click", () => {
+    const nic = getSelectedServerNicDraft();
+    if (!nic) {
+      return;
+    }
+    addServerNicIpDraft(nic.id);
+  });
+}
+if (serverNicList) {
+  serverNicList.addEventListener("input", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.serverNicId;
+    const field = target.dataset.serverNicField;
+    if (!nicId || !field) {
+      return;
+    }
+    updateServerNicDraft(nicId, field, target.value);
+  });
+  serverNicList.addEventListener("change", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.serverNicId;
+    const field = target.dataset.serverNicField;
+    if (!nicId || !field) {
+      return;
+    }
+    updateServerNicDraft(nicId, field, target.value);
+  });
+  serverNicList.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-server-nic-remove]");
+    if (removeButton) {
+      removeServerNicDraft(removeButton.dataset.serverNicRemove);
+      return;
+    }
+    const selectButton = event.target.closest("[data-server-nic-select]");
+    if (selectButton && !event.target.closest("input, select, button")) {
+      selectServerNicDraft(selectButton.dataset.serverNicSelect);
+    }
+  });
+}
+if (serverNicIpList) {
+  serverNicIpList.addEventListener("input", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.serverNicId;
+    const ipId = target.dataset.serverNicIpId;
+    const field = target.dataset.serverNicIpField;
+    if (!nicId || !ipId || !field) {
+      return;
+    }
+    updateServerNicIpDraft(nicId, ipId, field, target.value);
+  });
+  serverNicIpList.addEventListener("change", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.serverNicId;
+    const ipId = target.dataset.serverNicIpId;
+    const field = target.dataset.serverNicIpField;
+    if (!nicId || !ipId || !field) {
+      return;
+    }
+    updateServerNicIpDraft(nicId, ipId, field, target.value);
+  });
+  serverNicIpList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-server-nic-ip-remove]");
+    if (!button) {
+      return;
+    }
+    removeServerNicIpDraft(button.dataset.serverNicId, button.dataset.serverNicIpRemove);
+  });
+}
+if (subnetAddForm) {
+  subnetAddForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const message = addSubnet(subnetAddLabel.value, subnetAddCidr.value);
+    if (subnetAddError) {
+      subnetAddError.textContent = message;
+    }
+    if (!message) {
+      subnetAddLabel.value = "";
+      subnetAddCidr.value = "";
+    }
+  });
+}
+if (subnetAddCidr) {
+  subnetAddCidr.addEventListener("input", () => {
+    if (subnetAddError) {
+      subnetAddError.textContent = "";
+    }
+  });
+}
+if (subnetList) {
+  subnetList.addEventListener("click", (event) => {
+    const button = event.target.closest(".subnet-remove");
+    if (button) {
+      removeSubnet(button.dataset.subnetId);
+    }
+  });
+}
 subnetInput.addEventListener("input", () => {
   subnetInput.setCustomValidity("");
   renderNetworkSettings();
@@ -2240,6 +3578,32 @@ subnetInput.addEventListener("input", () => {
 desktopIpInput.addEventListener("input", () => {
   desktopIpInput.setCustomValidity("");
 });
+if (addDesktopIpButton) {
+  addDesktopIpButton.addEventListener("click", () => {
+    desktopExtraIpDrafts.push(normalizeDesktopExtraIpDraft({}));
+    renderDesktopExtraIps();
+  });
+}
+if (desktopExtraIpList) {
+  desktopExtraIpList.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-desktop-ip-id]");
+    if (input) {
+      const id = input.dataset.desktopIpId;
+      desktopExtraIpDrafts = desktopExtraIpDrafts.map((ip) =>
+        ip.id === id ? { ...ip, address: input.value } : ip,
+      );
+    }
+  });
+  desktopExtraIpList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-desktop-ip-remove]");
+    if (button) {
+      desktopExtraIpDrafts = desktopExtraIpDrafts.filter(
+        (ip) => ip.id !== button.dataset.desktopIpRemove,
+      );
+      renderDesktopExtraIps();
+    }
+  });
+}
 serverForm.elements.staticIp.addEventListener("input", () => {
   serverForm.elements.staticIp.setCustomValidity("");
 });
@@ -2278,6 +3642,20 @@ newServerButton.addEventListener("click", resetServerForm);
 deleteServerButton.addEventListener("click", deleteSelectedServer);
 newVmButton.addEventListener("click", resetVmForm);
 deleteVmButton.addEventListener("click", deleteSelectedVm);
+const focusToggle = document.querySelector("#focus-toggle");
+const workspace = document.querySelector(".workspace");
+focusToggle.addEventListener("click", () => {
+  const collapsed = workspace.classList.toggle("sidebars-collapsed");
+  focusToggle.setAttribute("aria-pressed", String(collapsed));
+  focusToggle.querySelector("span").textContent = collapsed ? "Show Panels" : "Expand View";
+  workspace.addEventListener("transitionend", function onEnd(e) {
+    if (e.propertyName === "grid-template-columns") {
+      workspace.removeEventListener("transitionend", onEnd);
+      renderLinks();
+    }
+  });
+});
+
 joinToggle.addEventListener("click", () => {
   joinMode = !joinMode;
   selectedNodeId = null;
@@ -2295,6 +3673,10 @@ window.addEventListener("resize", renderLinks);
 
 attachDropZone(vmPool, "pool");
 loadConfig().then(() => {
+  const desktop = getInfrastructureNode("desktop");
+  desktopExtraIpDrafts = (desktop?.extraIps || []).map((addr) =>
+    normalizeDesktopExtraIpDraft({ address: addr }),
+  );
   resetServerForm();
   resetVmForm();
   render();

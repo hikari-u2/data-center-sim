@@ -330,6 +330,21 @@ h1 {
   max-width: min(1680px, calc(100vw - 48px));
   margin: 0 auto;
   align-items: stretch;
+  transition: grid-template-columns 0.3s ease;
+}
+
+.workspace.sidebars-collapsed {
+  grid-template-columns: 0 1fr 0;
+}
+
+.workspace.sidebars-collapsed .desktop-panel,
+.workspace.sidebars-collapsed .right-rail {
+  opacity: 0;
+  padding: 0;
+  border-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .desktop-panel,
@@ -486,6 +501,160 @@ h1 {
   border: 1px solid #cbd6dd;
   border-radius: 6px;
   background: #f6f9fa;
+}
+
+.server-nic-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #cbd6dd;
+  border-radius: 6px;
+  background: #f6f9fa;
+}
+
+.server-nic-editor-heading,
+.server-nic-ip-heading {
+  display: grid;
+  gap: 1px;
+}
+
+.server-nic-editor-heading span,
+.server-nic-ip-heading span {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.server-nic-editor-heading small,
+.server-nic-ip-heading small,
+.server-nic-error,
+.server-nic-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.server-nic-list,
+.server-nic-ip-list {
+  display: grid;
+  gap: 8px;
+}
+
+.server-nic-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #cbd6dd;
+  border-radius: 6px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.server-nic-card.is-selected {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(47, 98, 136, 0.16);
+}
+
+.server-nic-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.server-nic-card-main {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.server-nic-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.server-nic-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.server-nic-pill {
+  padding: 2px 7px;
+  border: 1px solid #cbd6dd;
+  border-radius: 999px;
+  background: #f7fafb;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.server-nic-ip-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #d9e1e5;
+}
+
+.server-nic-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.server-nic-ip-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.server-nic-ip-row.is-primary {
+  grid-template-columns: minmax(0, 1.3fr) auto;
+  padding: 8px;
+  border: 1px solid #d9e1e5;
+  border-radius: 6px;
+  background: #f7fafb;
+}
+
+.server-nic-ip-primary-note {
+  align-self: end;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.server-nic-card label,
+.server-nic-ip-row label {
+  display: grid;
+  gap: 5px;
+}
+
+.server-nic-card label span,
+.server-nic-ip-row label span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.server-nic-remove,
+.server-nic-ip-remove {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.server-nic-error:not(:empty) {
+  padding: 7px 9px;
+  border-radius: 4px;
+  background: #fbeaea;
+  color: #9f1d1d;
 }
 
 .gpu-editor-heading {
@@ -759,6 +928,12 @@ h1 {
   gap: 12px;
 }
 
+.desktop-panel,
+.right-rail {
+  transition: opacity 0.25s ease, padding 0.3s ease, min-height 0.3s ease;
+  overflow: hidden;
+}
+
 .topology-toolbar {
   display: flex;
   justify-content: space-between;
@@ -770,6 +945,37 @@ h1 {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.icon-button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.icon-button[aria-pressed="true"] {
+  border-color: var(--blue);
+  background: #eaf1f7;
+  color: var(--blue);
+}
+
+.focus-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .join-help {
@@ -1360,4 +1566,491 @@ h1 {
   .desktop-topology {
     width: min(164px, calc(100% - 24px));
   }
+}
+
+/* NIC adapters on server cards (dark node surface) */
+.nic-panel {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.nic-panel-title {
+  color: #d7e4e7;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.nic-block {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(75, 185, 176, 0.28);
+  border-left: 4px solid #3aa59b;
+  border-radius: 3px;
+  background: rgba(14, 31, 38, 0.9);
+}
+
+.nic-block.is-warning {
+  border-color: rgba(214, 158, 76, 0.7);
+  border-left-color: #d69e4c;
+}
+
+.nic-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nic-head strong {
+  color: #effbfc;
+  font-size: 0.72rem;
+  font-weight: 900;
+  overflow-wrap: break-word;
+}
+
+.nic-type {
+  padding: 1px 5px;
+  border: 1px solid rgba(123, 188, 192, 0.4);
+  border-radius: 3px;
+  color: #9fd2d2;
+  font-size: 0.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nic-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.nic-meta-chip {
+  padding: 1px 5px;
+  border: 1px solid rgba(116, 137, 149, 0.38);
+  border-radius: 999px;
+  color: #b6c6cc;
+  font-size: 0.54rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.nic-meta-chip.accent {
+  border-color: rgba(123, 188, 192, 0.3);
+  color: #c6e5e6;
+}
+
+.nic-ip-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nic-ip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(32, 71, 67, 0.34);
+}
+
+.nic-ip.is-warning {
+  background: rgba(122, 74, 18, 0.5);
+}
+
+.nic-ip-addr {
+  color: #effbfc;
+  font-size: 0.64rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.nic-ip-tag {
+  padding: 0 4px;
+  border: 1px solid rgba(168, 214, 206, 0.3);
+  border-radius: 3px;
+  color: #a8d6ce;
+  font-size: 0.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.nic-empty {
+  color: #d69e4c;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+/* Network adapters on VM cards (light surface) */
+.vm-nic-panel {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #d7e0e4;
+}
+
+.vm-nic-panel > strong {
+  color: #2d645e;
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vm-nic-panel .nic-block {
+  border: 1px solid #d3dde1;
+  border-left: 4px solid #3aa59b;
+  background: #f4f8f8;
+}
+
+.vm-nic-panel .nic-block.is-warning {
+  border-color: #e3c08a;
+  border-left-color: #c2851f;
+}
+
+.vm-nic-panel .nic-head strong {
+  color: #1f2c30;
+}
+
+.vm-nic-panel .nic-type {
+  border-color: #b9d2d2;
+  color: #2d645e;
+}
+
+.vm-nic-panel .nic-meta {
+  color: #43525b;
+}
+
+.vm-nic-panel .nic-ip-label {
+  color: #2d8c83;
+}
+
+.vm-nic-panel .nic-ip {
+  background: #e7f1f0;
+}
+
+.vm-nic-panel .nic-ip.is-warning {
+  background: #fbeeda;
+}
+
+.vm-nic-panel .nic-ip-addr {
+  color: #17302c;
+}
+
+.vm-nic-panel .nic-ip-tag {
+  border-color: #b9d2d2;
+  color: #2d645e;
+}
+
+/* IP address management view */
+.ip-management {
+  max-width: min(1680px, calc(100vw - 48px));
+  margin: 18px auto 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.ip-management-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ip-management-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ip-management-meta strong {
+  color: var(--ink);
+}
+
+.ip-warnings {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #cdd6da;
+  border-left: 4px solid #6f838e;
+  border-radius: 6px;
+  background: #f4f7f8;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.ip-warnings.has-warnings {
+  border-color: #e3c08a;
+  border-left-color: #c2851f;
+  background: #fdf6ea;
+  color: #7a4a12;
+}
+
+.ip-warnings strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #8a5512;
+}
+
+.ip-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+}
+
+.ip-warnings-clear {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.ip-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.ip-table th,
+.ip-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.ip-table th {
+  position: sticky;
+  top: 0;
+  background: #eef2f3;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ip-table tbody tr:hover {
+  background: #f6f9fa;
+}
+
+.ip-table tbody tr.is-warning {
+  background: #fdf6ea;
+}
+
+.ip-table td:first-child {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.ip-empty {
+  text-align: center;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.ip-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ip-status.is-ok {
+  background: rgba(47, 125, 90, 0.14);
+  color: var(--green);
+}
+
+.ip-status.is-warning {
+  background: rgba(194, 133, 31, 0.18);
+  color: #8a5512;
+  cursor: help;
+}
+
+/* Desktop extra IPs (network addressing panel) */
+.desktop-extra-ip-list {
+  display: grid;
+  gap: 6px;
+}
+
+.desktop-extra-ip-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.desktop-extra-ip-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.desktop-extra-ip-add {
+  align-self: flex-start;
+}
+
+/* Subnet manager (network addressing panel) */
+.subnet-manager {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.subnet-manager-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.subnet-manager-head span {
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.subnet-manager-head small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.subnet-list {
+  display: grid;
+  gap: 6px;
+}
+
+.subnet-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.subnet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: 6px;
+  background: #f7fafb;
+}
+
+.subnet-row.is-error {
+  border-left-color: #c2851f;
+  background: #fdf6ea;
+}
+
+.subnet-row-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.subnet-row-main strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.subnet-row-main span {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.subnet-tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(47, 98, 136, 0.14);
+  color: var(--blue);
+  font-size: 0.6rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.subnet-remove {
+  padding: 3px 9px;
+  border: 1px solid #d8c2c2;
+  border-radius: 6px;
+  background: #fff;
+  color: #9f1d1d;
+  font-size: 0.64rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.subnet-remove:hover {
+  background: #fbeaea;
+  border-color: #c98b8b;
+}
+
+.subnet-add-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.subnet-add-form input {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
+.subnet-add-form input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.subnet-add-form button {
+  padding: 7px 10px;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.subnet-add-form button:hover {
+  filter: brightness(1.05);
+}
+
+.subnet-add-error:not(:empty) {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fbeaea;
+  color: #9f1d1d;
+  font-size: 0.66rem;
+  font-weight: 700;
 }
