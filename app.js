@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = {
     serverSubnet: "192.168.1.0/24",
   },
   infrastructureNodes: [
-    { id: "desktop", type: "desktop", name: "Admin Desktop", x: 8, y: 42 },
+    { id: "desktop", type: "desktop", name: "Admin Desktop", staticIp: "192.168.1.1", x: 8, y: 42 },
     { id: "switch", type: "switch", name: "Core Switch", x: 34, y: 43 },
   ],
   links: [
@@ -75,6 +75,11 @@ const topologyCanvas = document.querySelector("#topology-canvas");
 const nodeLayer = document.querySelector("#node-layer");
 const linkLayer = document.querySelector("#link-layer");
 const vmPool = document.querySelector("#vm-pool");
+const vmForm = document.querySelector("#vm-form");
+const vmFormState = document.querySelector("#vm-form-state");
+const vmSubmit = document.querySelector("#vm-submit");
+const newVmButton = document.querySelector("#new-vm");
+const deleteVmButton = document.querySelector("#delete-vm");
 const serverForm = document.querySelector("#server-form");
 const serverFormState = document.querySelector("#server-form-state");
 const serverSubmit = document.querySelector("#server-submit");
@@ -88,11 +93,13 @@ const clearSelection = document.querySelector("#clear-selection");
 const joinHelp = document.querySelector("#join-help");
 const networkForm = document.querySelector("#network-form");
 const subnetInput = document.querySelector("#subnet-input");
+const desktopIpInput = document.querySelector("#desktop-ip-input");
 const subnetSummary = document.querySelector("#subnet-summary");
 
 let joinMode = false;
 let selectedNodeId = null;
 let selectedServerId = null;
+let selectedVmId = null;
 let dragging = null;
 let suppressedClickNodeId = null;
 const DEFAULT_SWITCH_PORTS = 8;
@@ -256,6 +263,12 @@ function getNextAvailableIp(excludeServerId = null) {
       .filter((ipNumber) => ipNumber !== null),
   );
 
+  infrastructureNodes
+    .filter((node) => node.id !== excludeServerId)
+    .map((node) => parseIp(node.staticIp))
+    .filter((ipNumber) => ipNumber !== null)
+    .forEach((ipNumber) => used.add(ipNumber));
+
   const preferredStart = Math.min(subnet.firstUsable + 9, subnet.lastUsable);
   for (let ipNumber = preferredStart; ipNumber <= subnet.lastUsable; ipNumber += 1) {
     if (!used.has(ipNumber)) {
@@ -280,6 +293,13 @@ function normalizeServer(server) {
   };
 }
 
+function normalizeInfrastructureNode(node) {
+  return {
+    ...node,
+    staticIp: typeof node.staticIp === "string" ? node.staticIp : "",
+  };
+}
+
 function normalizeConfig(config) {
   const fallback = clone(DEFAULT_CONFIG);
   const safeConfig = config && typeof config === "object" ? config : fallback;
@@ -294,8 +314,8 @@ function normalizeConfig(config) {
           : fallback.network.serverSubnet,
     },
     infrastructureNodes: Array.isArray(safeConfig.infrastructureNodes)
-      ? safeConfig.infrastructureNodes
-      : fallback.infrastructureNodes,
+      ? safeConfig.infrastructureNodes.map(normalizeInfrastructureNode)
+      : fallback.infrastructureNodes.map(normalizeInfrastructureNode),
     links: Array.isArray(safeConfig.links) ? safeConfig.links : fallback.links,
     vms: Array.isArray(safeConfig.vms) ? safeConfig.vms : fallback.vms,
   };
@@ -314,6 +334,11 @@ function applyConfig(config) {
       server.staticIp = getNextAvailableIp(server.id);
     }
   });
+
+  const desktop = getInfrastructureNode("desktop");
+  if (desktop && !desktop.staticIp) {
+    desktop.staticIp = getNextAvailableIp();
+  }
 }
 
 function serializeConfig() {
@@ -370,6 +395,14 @@ function getServer(id) {
   return servers.find((server) => server.id === id);
 }
 
+function getVm(id) {
+  return vms.find((vm) => vm.id === id);
+}
+
+function getInfrastructureNode(id) {
+  return infrastructureNodes.find((node) => node.id === id);
+}
+
 function getConnectedLinkCount(nodeId) {
   return links.filter((link) => link.from === nodeId || link.to === nodeId).length;
 }
@@ -397,6 +430,10 @@ function slugify(value) {
 
 function getNextServerName() {
   return `Compute-${String(servers.length + 1).padStart(2, "0")}`;
+}
+
+function getNextVmName() {
+  return `vm-${String(vms.length + 1).padStart(2, "0")}`;
 }
 
 function getNextServerPosition() {
@@ -445,6 +482,38 @@ function resetServerForm() {
   render();
 }
 
+function getVmFormData() {
+  const formData = new FormData(vmForm);
+
+  return {
+    name: String(formData.get("name")).trim(),
+    size: String(formData.get("size")).trim(),
+  };
+}
+
+function fillVmForm(vm) {
+  vmForm.elements.name.value = vm.name;
+  vmForm.elements.size.value = vm.size;
+}
+
+function resetVmForm() {
+  selectedVmId = null;
+  vmForm.elements.name.value = getNextVmName();
+  vmForm.elements.size.value = "2 CPU / 4 GB";
+  render();
+}
+
+function selectVmForEdit(vmId) {
+  const vm = getVm(vmId);
+  if (!vm) {
+    return;
+  }
+
+  selectedVmId = vmId;
+  fillVmForm(vm);
+  render();
+}
+
 function selectServerForEdit(serverId) {
   const server = getServer(serverId);
   if (!server) {
@@ -463,10 +532,17 @@ function makeVmCard(vm) {
   card.className = "vm-card";
   card.draggable = true;
   card.dataset.vmId = vm.id;
+  if (vm.id === selectedVmId) {
+    card.classList.add("is-editing");
+  }
   card.innerHTML = `<strong>${escapeHtml(vm.name)}</strong><span>${escapeHtml(vm.size)}</span>`;
   card.addEventListener("dragstart", (event) => {
     event.dataTransfer.setData("text/plain", vm.id);
     event.dataTransfer.effectAllowed = "move";
+  });
+  card.addEventListener("click", (event) => {
+    event.stopPropagation();
+    selectVmForEdit(vm.id);
   });
   return card;
 }
@@ -492,16 +568,28 @@ function attachDropZone(element, serverId) {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     element.closest(".topology-node")?.classList.add("is-drop-target");
+    if (serverId === "pool") {
+      element.classList.add("is-drop-target");
+    }
   });
 
   element.addEventListener("dragleave", () => {
     element.closest(".topology-node")?.classList.remove("is-drop-target");
+    if (serverId === "pool") {
+      element.classList.remove("is-drop-target");
+    }
   });
 
   element.addEventListener("drop", (event) => {
     event.preventDefault();
     const vmId = event.dataTransfer.getData("text/plain");
     element.closest(".topology-node")?.classList.remove("is-drop-target");
+    if (serverId === "pool") {
+      element.classList.remove("is-drop-target");
+    }
+    if (!getVm(vmId)) {
+      return;
+    }
     moveVmToServer(vmId, serverId);
   });
 }
@@ -571,6 +659,7 @@ function makeNodeElement(node) {
         <span>Desktop</span>
         <strong>${escapeHtml(node.name)}</strong>
       </div>
+      <div class="ip-chip desktop-ip-chip">${escapeHtml(node.staticIp || "IP unassigned")}</div>
     `;
   }
 
@@ -744,6 +833,11 @@ function renderNetworkSettings() {
     subnetInput.value = savedSubnet;
   }
 
+  const desktop = getInfrastructureNode("desktop");
+  if (desktop && document.activeElement !== desktopIpInput) {
+    desktopIpInput.value = desktop.staticIp || getNextAvailableIp("desktop");
+  }
+
   const subnet = parseSubnet(subnetInput.value || savedSubnet);
 
   if (!subnet) {
@@ -780,14 +874,90 @@ function renderServerFormState() {
   deleteServerButton.disabled = !isEditing;
 }
 
+function renderVmFormState() {
+  const selectedVm = getVm(selectedVmId);
+  const isEditing = Boolean(selectedVm);
+
+  if (!isEditing && selectedVmId) {
+    selectedVmId = null;
+  }
+
+  vmFormState.textContent = isEditing
+    ? `Editing ${selectedVm.name}`
+    : "Create a new VM";
+  vmSubmit.textContent = isEditing ? "Save VM" : "Add VM";
+  deleteVmButton.disabled = !isEditing;
+}
+
 function render() {
   renderCounters();
   renderNetworkSettings();
   renderJoinState();
   renderServerFormState();
+  renderVmFormState();
   renderNodes();
   requestAnimationFrame(renderLinks);
   renderVmPool();
+}
+
+function createVm(values) {
+  const name = values.name;
+  const baseId = slugify(name) || `vm-${vms.length + 1}`;
+  let id = baseId;
+  let suffix = 2;
+
+  while (getVm(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  vms.push({
+    id,
+    name,
+    size: values.size,
+  });
+  selectedVmId = id;
+}
+
+function updateSelectedVm(values) {
+  const vm = getVm(selectedVmId);
+  if (!vm) {
+    selectedVmId = null;
+    createVm(values);
+    return;
+  }
+
+  vm.name = values.name;
+  vm.size = values.size;
+}
+
+function saveVm(event) {
+  event.preventDefault();
+  const values = getVmFormData();
+
+  if (selectedVmId) {
+    updateSelectedVm(values);
+  } else {
+    createVm(values);
+  }
+
+  render();
+  saveConfig();
+}
+
+function deleteSelectedVm() {
+  const vmIndex = vms.findIndex((vm) => vm.id === selectedVmId);
+  if (vmIndex === -1) {
+    return;
+  }
+
+  const deletedId = selectedVmId;
+  vms.splice(vmIndex, 1);
+  servers.forEach((server) => {
+    server.vmIds = server.vmIds.filter((vmId) => vmId !== deletedId);
+  });
+  resetVmForm();
+  saveConfig();
 }
 
 function createServer(values) {
@@ -841,8 +1011,10 @@ function saveServer(event) {
   const values = getServerFormData();
   const subnet = getCurrentSubnet();
   const staticIpNumber = values.staticIp ? parseIp(values.staticIp) : null;
+  const desktop = getInfrastructureNode("desktop");
   const duplicateIp = values.staticIp
-    ? servers.some((server) => server.id !== selectedServerId && server.staticIp === values.staticIp)
+    ? servers.some((server) => server.id !== selectedServerId && server.staticIp === values.staticIp) ||
+      desktop?.staticIp === values.staticIp
     : false;
 
   if (values.staticIp && staticIpNumber === null) {
@@ -881,8 +1053,14 @@ function saveServer(event) {
 
 function saveNetworkSettings(event) {
   event.preventDefault();
-  const subnetText = String(new FormData(networkForm).get("serverSubnet")).trim();
+  const formData = new FormData(networkForm);
+  const subnetText = String(formData.get("serverSubnet")).trim();
+  const desktopIp = String(formData.get("desktopIp")).trim();
   const subnet = parseSubnet(subnetText);
+  const desktopIpNumber = desktopIp ? parseIp(desktopIp) : null;
+  const duplicateDesktopIp = desktopIp
+    ? servers.some((server) => server.staticIp === desktopIp)
+    : false;
 
   if (!subnet) {
     subnetInput.setCustomValidity("Use CIDR like 192.168.1.0/24 or mask style like 192.168.1.0 255.255.255.0.");
@@ -891,8 +1069,34 @@ function saveNetworkSettings(event) {
     return;
   }
 
+  if (desktopIp && desktopIpNumber === null) {
+    desktopIpInput.setCustomValidity("Use a valid IPv4 address.");
+    networkForm.reportValidity();
+    return;
+  }
+
+  if (
+    desktopIp &&
+    (desktopIpNumber < subnet.firstUsable || desktopIpNumber > subnet.lastUsable)
+  ) {
+    desktopIpInput.setCustomValidity("Use an IP address inside the subnet.");
+    networkForm.reportValidity();
+    return;
+  }
+
+  if (duplicateDesktopIp) {
+    desktopIpInput.setCustomValidity("Use an IP address that is not already assigned to a server.");
+    networkForm.reportValidity();
+    return;
+  }
+
   subnetInput.setCustomValidity("");
+  desktopIpInput.setCustomValidity("");
   network.serverSubnet = subnetText;
+  const desktop = getInfrastructureNode("desktop");
+  if (desktop) {
+    desktop.staticIp = desktopIp || getNextAvailableIp("desktop");
+  }
   render();
   saveConfig();
 }
@@ -915,16 +1119,22 @@ function deleteSelectedServer() {
 }
 
 serverForm.addEventListener("submit", saveServer);
+vmForm.addEventListener("submit", saveVm);
 networkForm.addEventListener("submit", saveNetworkSettings);
 subnetInput.addEventListener("input", () => {
   subnetInput.setCustomValidity("");
   renderNetworkSettings();
+});
+desktopIpInput.addEventListener("input", () => {
+  desktopIpInput.setCustomValidity("");
 });
 serverForm.elements.staticIp.addEventListener("input", () => {
   serverForm.elements.staticIp.setCustomValidity("");
 });
 newServerButton.addEventListener("click", resetServerForm);
 deleteServerButton.addEventListener("click", deleteSelectedServer);
+newVmButton.addEventListener("click", resetVmForm);
+deleteVmButton.addEventListener("click", deleteSelectedVm);
 joinToggle.addEventListener("click", () => {
   joinMode = !joinMode;
   selectedNodeId = null;
@@ -943,5 +1153,6 @@ window.addEventListener("resize", renderLinks);
 attachDropZone(vmPool, "pool");
 loadConfig().then(() => {
   resetServerForm();
+  resetVmForm();
   render();
 });

@@ -8,12 +8,12 @@
       "ram": "128 GB",
       "storage": "4 TB SSD",
       "gpus": "2 x NVIDIA L40S",
-      "staticIp": "192.168.1.10",
+      "staticIp": "192.168.11.110",
       "vmIds": [
-        "vm-gpu"
+        "vm-db"
       ],
-      "x": 1,
-      "y": 32.65253360910031
+      "x": 5.3642461586459715,
+      "y": 31.81743421052631
     },
     {
       "id": "storage-03",
@@ -24,9 +24,7 @@
       "storage": "24 TB HDD",
       "gpus": "None",
       "staticIp": "192.168.1.11",
-      "vmIds": [
-        "vm-db"
-      ],
+      "vmIds": [],
       "x": 69.51680836128227,
       "y": 25.39954874494688
     },
@@ -39,9 +37,7 @@
       "storage": "3 TB SSD",
       "gpus": "None",
       "staticIp": "192.168.1.12",
-      "vmIds": [
-        "vm-backup"
-      ],
+      "vmIds": [],
       "x": 37.63941970205133,
       "y": 44.41571871768355
     }
@@ -55,14 +51,16 @@
       "type": "desktop",
       "name": "Admin Desktop",
       "x": 1.612588721628578,
-      "y": 1
+      "y": 1,
+      "staticIp": "192.168.11.10"
     },
     {
       "id": "switch",
       "type": "switch",
       "name": "Core Switch",
       "x": 37.64721940566258,
-      "y": 4.547804832189527
+      "y": 4.547804832189527,
+      "staticIp": ""
     }
   ],
   "links": [

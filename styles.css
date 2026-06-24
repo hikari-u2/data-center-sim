@@ -278,6 +278,12 @@ h1 {
   gap: 12px;
 }
 
+.vm-form {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
 .form-state {
   margin-top: 14px;
   min-height: 34px;
@@ -292,13 +298,15 @@ h1 {
   font-weight: 800;
 }
 
-.server-form label {
+.server-form label,
+.vm-form label {
   display: grid;
   gap: 5px;
 }
 
 .server-form label span,
-.network-form label span {
+.network-form label span,
+.vm-form label span {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
@@ -306,7 +314,8 @@ h1 {
 }
 
 .server-form input,
-.network-form input {
+.network-form input,
+.vm-form input {
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -317,13 +326,15 @@ h1 {
 }
 
 .server-form input:focus,
-.network-form input:focus {
+.network-form input:focus,
+.vm-form input:focus {
   border-color: var(--blue);
   outline: 2px solid rgba(47, 98, 136, 0.16);
 }
 
 .server-form button,
 .network-form button,
+.vm-form button,
 .secondary-button,
 .ghost-button,
 .danger-button {
@@ -339,10 +350,17 @@ h1 {
   gap: 8px;
 }
 
-.server-form button {
+.server-form button,
+.vm-form button {
   border: 1px solid #213443;
   background: #263743;
   color: #f7fbfc;
+}
+
+.vm-form-actions {
+  display: grid;
+  grid-template-columns: 1fr 0.7fr 0.8fr;
+  gap: 8px;
 }
 
 .network-form {
@@ -622,6 +640,13 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.desktop-ip-chip {
+  border-color: #163642;
+  background: #203844;
+  color: #effbfc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
 .compact-specs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -738,6 +763,11 @@ h1 {
   cursor: grabbing;
 }
 
+.vm-card.is-editing {
+  border-color: #2d8c83;
+  box-shadow: 0 0 0 2px rgba(45, 140, 131, 0.16);
+}
+
 .vm-card strong {
   font-size: 0.82rem;
 }
@@ -749,9 +779,42 @@ h1 {
 }
 
 .vm-pool {
-  margin-top: 18px;
+  min-height: 112px;
+  max-height: 166px;
+  margin-top: 10px;
   display: grid;
+  align-content: start;
   gap: 10px;
+  padding: 10px;
+  border: 1px dashed #9baab4;
+  border-radius: 6px;
+  background: #f4f7f8;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.vm-pool.is-drop-target {
+  border-color: #2d8c83;
+  background: #e8f4f2;
+  box-shadow: inset 0 0 0 1px rgba(45, 140, 131, 0.28);
+}
+
+.holding-title {
+  margin-top: 16px;
+  display: grid;
+  gap: 2px;
+}
+
+.holding-title span {
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.holding-title small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .vm-panel .vm-card {

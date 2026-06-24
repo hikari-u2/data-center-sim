@@ -26,7 +26,7 @@ The important artifacts are:
 - `app.js`: the app behavior, drag/drop, CRUD, joining devices, rendering, and save calls.
 - `serve-local.ps1`: the PowerShell local backend that serves the page and saves config changes.
 - `Start Data Center Sim.bat`: the double-click Windows launcher for non-technical users.
-- `data/config.json`: the saved servers, VMs, network links, and node positions.
+- `data/config.json`: the saved servers, desktop, VMs, network links, static IPs, subnet, and node positions.
 
 ### Data Model
 
@@ -36,9 +36,14 @@ erDiagram
   CONFIG ||--o{ VM : contains
   CONFIG ||--o{ INFRASTRUCTURE_NODE : contains
   CONFIG ||--o{ LINK : contains
+  CONFIG ||--|| NETWORK : contains
   SERVER ||--o{ VM : hosts
   LINK }o--|| SERVER : can_connect
   LINK }o--|| INFRASTRUCTURE_NODE : can_connect
+
+  NETWORK {
+    string serverSubnet
+  }
 
   SERVER {
     string id
@@ -48,6 +53,7 @@ erDiagram
     string ram
     string storage
     string gpus
+    string staticIp
     number x
     number y
   }
@@ -62,6 +68,7 @@ erDiagram
     string id
     string type
     string name
+    string staticIp
     number x
     number y
   }
@@ -110,6 +117,10 @@ The key user workflows are:
 - **Move device**: user drags a server, desktop, or switch; app saves the new position.
 - **Join devices**: user chooses two devices; app adds a network link and saves.
 - **Load VM**: user drags a VM card onto a server; app assigns that VM to the server and saves.
+- **Unload VM**: user drags a VM card from a server back to the right-side Holding Spot; app removes it from that server and saves it as unassigned. The Holding Spot scrolls after about three visible VM cards so the panel does not keep growing.
+- **Create, edit, and delete VMs**: user uses the right-side VM CRUD form to manage VM name and size; deleting a VM also removes it from any server.
+- **Set subnet**: user edits the right-side Network Addressing panel using CIDR style, such as `192.168.1.0/24`, or mask style, such as `192.168.1.0 255.255.255.0`.
+- **Set Admin Desktop IP**: user edits the Admin Desktop IP in the same Network Addressing panel; the desktop card shows that static address in a high-contrast badge and the value is saved to `data/config.json`.
 
 ## Branding And AI Usage
 
@@ -165,13 +176,20 @@ The sample server, VM, and network connection data lives in `data/config.json`.
 Each server shows:
 
 - Name
+- Static IP
 - CPU
 - RAM
 - Storage
 - GPUs
 - VMs loaded on that server
 
-VM cards can be dragged onto a server.
+The right-side **Network Addressing** panel stores:
+
+- Server subnet, accepted as CIDR style like `192.168.1.0/24`
+- Server subnet, accepted as mask style like `192.168.1.0 255.255.255.0`
+- Admin Desktop static IP
+
+VM cards can be created, edited, deleted, dragged onto a server, or dragged back to the right-side **Holding Spot** to unload them from a server. The Holding Spot keeps a fixed height and scrolls when there are more than a few unassigned VMs.
 
 You can also:
 
@@ -179,5 +197,6 @@ You can also:
 - Click a server to read and edit its details
 - Save changes to update a selected server
 - Delete a selected server and remove its network links
+- Add, edit, and delete VMs with name and size
 - Drag devices around the topology canvas
 - Use **Join Devices** and select two devices to connect them

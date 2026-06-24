@@ -127,7 +127,17 @@
                   required
                 />
               </label>
-              <button type="submit">Save Subnet</button>
+              <label>
+                <span>Admin Desktop IP</span>
+                <input
+                  id="desktop-ip-input"
+                  name="desktopIp"
+                  value="192.168.1.1"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+              <button type="submit">Save Network</button>
             </form>
             <div id="subnet-summary" class="subnet-summary">192.168.1.0/24</div>
           </section>
@@ -135,7 +145,28 @@
           <section class="vm-panel">
             <div class="section-title">
               <span class="title-dot vm-dot"></span>
-              <span>Unassigned VMs</span>
+              <span>VM CRUD</span>
+            </div>
+            <div id="vm-form-state" class="form-state">Create a new VM</div>
+            <form id="vm-form" class="vm-form">
+              <label>
+                <span>Name</span>
+                <input id="vm-name" name="name" value="app-01" autocomplete="off" required />
+              </label>
+              <label>
+                <span>Size</span>
+                <input id="vm-size" name="size" value="2 CPU / 4 GB" autocomplete="off" required />
+              </label>
+              <div class="vm-form-actions">
+                <button id="vm-submit" type="submit">Add VM</button>
+                <button id="new-vm" class="secondary-button" type="button">New</button>
+                <button id="delete-vm" class="danger-button" type="button" disabled>Delete</button>
+              </div>
+            </form>
+
+            <div class="holding-title">
+              <span>Holding Spot</span>
+              <small>Drop VMs here to unload them</small>
             </div>
             <div id="vm-pool" class="vm-pool" aria-label="Unassigned virtual machines"></div>
           </section>
