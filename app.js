@@ -8,6 +8,8 @@ const DEFAULT_CONFIG = {
       ram: "64 GB",
       storage: "2 TB NVMe",
       gpus: "1 x NVIDIA A10",
+      physicalGpuSlots: 1,
+      gpuDevices: [],
       staticIp: "192.168.1.10",
       vmIds: ["vm-web"],
       x: 58,
@@ -21,8 +23,28 @@ const DEFAULT_CONFIG = {
       ram: "128 GB",
       storage: "4 TB SSD",
       gpus: "2 x NVIDIA L40S",
+      physicalGpuSlots: 2,
+      gpuDevices: [
+        {
+          id: "gpu-compute-02-01",
+          hostServerId: "compute-02",
+          displayName: "NVIDIA L40S",
+          vendor: "NVIDIA",
+          model: "L40S",
+          pcieBusString: "PCIROOT(0)#PCI(1D00)#PCI(0000)",
+          bus: "",
+          device: "",
+          function: "",
+          hypervLocationPath: "PCIROOT(0)#PCI(1D00)#PCI(0000)",
+          assignedVmId: "vm-gpu",
+          assignedVmName: "ai-worker",
+          assignmentMode: "Hyper-V DDA",
+          assignmentStatus: "assigned",
+          notes: "Sample Hyper-V DDA assignment",
+        },
+      ],
       staticIp: "192.168.1.11",
-      vmIds: [],
+      vmIds: ["vm-gpu"],
       x: 64,
       y: 40,
     },
@@ -34,6 +56,8 @@ const DEFAULT_CONFIG = {
       ram: "96 GB",
       storage: "24 TB HDD",
       gpus: "None",
+      physicalGpuSlots: 0,
+      gpuDevices: [],
       staticIp: "192.168.1.12",
       vmIds: ["vm-db"],
       x: 58,
@@ -54,11 +78,22 @@ const DEFAULT_CONFIG = {
     { from: "switch", to: "storage-03" },
   ],
   vms: [
-    { id: "vm-web", name: "web-01", size: "2 CPU / 4 GB" },
-    { id: "vm-db", name: "db-01", size: "4 CPU / 16 GB" },
-    { id: "vm-test", name: "test-lab", size: "2 CPU / 8 GB" },
-    { id: "vm-gpu", name: "ai-worker", size: "8 CPU / 32 GB / GPU" },
-    { id: "vm-backup", name: "backup-01", size: "2 CPU / 8 GB" },
+    { id: "vm-web", name: "web-01", size: "2 CPU / 4 GB", hostServerId: "edge-01" },
+    { id: "vm-db", name: "db-01", size: "4 CPU / 16 GB", hostServerId: "storage-03" },
+    { id: "vm-test", name: "test-lab", size: "2 CPU / 8 GB", hostServerId: "" },
+    {
+      id: "vm-gpu",
+      name: "ai-worker",
+      size: "8 CPU / 32 GB / GPU",
+      hostServerId: "compute-02",
+      gpuPassthrough: {
+        enabled: true,
+        gpuId: "gpu-compute-02-01",
+        pcieBusString: "PCIROOT(0)#PCI(1D00)#PCI(0000)",
+        assignmentMode: "Hyper-V DDA",
+      },
+    },
+    { id: "vm-backup", name: "backup-01", size: "2 CPU / 8 GB", hostServerId: "" },
   ],
 };
 
@@ -85,6 +120,7 @@ const serverFormState = document.querySelector("#server-form-state");
 const serverSubmit = document.querySelector("#server-submit");
 const newServerButton = document.querySelector("#new-server");
 const deleteServerButton = document.querySelector("#delete-server");
+const serverGpuSlotsInput = document.querySelector("#server-gpu-slots");
 const serverCount = document.querySelector("#server-count");
 const linkCount = document.querySelector("#link-count");
 const vmCount = document.querySelector("#vm-count");
@@ -95,15 +131,40 @@ const networkForm = document.querySelector("#network-form");
 const subnetInput = document.querySelector("#subnet-input");
 const desktopIpInput = document.querySelector("#desktop-ip-input");
 const subnetSummary = document.querySelector("#subnet-summary");
+const gpuDisplayNameInput = document.querySelector("#gpu-display-name");
+const gpuVendorInput = document.querySelector("#gpu-vendor");
+const gpuModelInput = document.querySelector("#gpu-model");
+const gpuPcieBusInput = document.querySelector("#gpu-pcie-bus");
+const gpuBusInput = document.querySelector("#gpu-bus");
+const gpuDeviceInput = document.querySelector("#gpu-device");
+const gpuFunctionInput = document.querySelector("#gpu-function");
+const gpuHypervPathInput = document.querySelector("#gpu-hyperv-path");
+const gpuAssignedVmSelect = document.querySelector("#gpu-assigned-vm");
+const gpuNotesInput = document.querySelector("#gpu-notes");
+const gpuWarning = document.querySelector("#gpu-warning");
+const gpuSubmit = document.querySelector("#gpu-submit");
+const gpuNewButton = document.querySelector("#gpu-new");
+const gpuDeleteButton = document.querySelector("#gpu-delete");
+const gpuDeviceList = document.querySelector("#gpu-device-list");
+const gpuAssignmentDialog = document.querySelector("#gpu-assignment-dialog");
+const gpuAssignmentForm = document.querySelector("#gpu-assignment-form");
+const gpuDialogContext = document.querySelector("#gpu-dialog-context");
+const gpuDialogLocationInput = document.querySelector("#gpu-dialog-location");
+const gpuDialogError = document.querySelector("#gpu-dialog-error");
+const gpuDialogSkip = document.querySelector("#gpu-dialog-skip");
 
 let joinMode = false;
 let selectedNodeId = null;
 let selectedServerId = null;
 let selectedVmId = null;
+let selectedGpuId = null;
+let gpuDraftDevices = [];
+let pendingGpuAssignment = null;
 let dragging = null;
 let suppressedClickNodeId = null;
 const DEFAULT_SWITCH_PORTS = 8;
 const DEFAULT_SERVER_SUBNET = "192.168.1.0/24";
+const SAMPLE_PCIE_LOCATION_PATH = "PCIROOT(0)#PCI(1D00)#PCI(0000)";
 const MASK_OCTET_PREFIX = {
   255: 8,
   254: 7,
@@ -352,6 +413,333 @@ function makeIpChip(ipAddress, extraClass = "") {
   return `<div class="${classes}"${title}>${escapeHtml(value || "IP unassigned")}</div>`;
 }
 
+function getEmptyGpuPassthrough() {
+  return {
+    enabled: false,
+    gpuId: "",
+    pcieBusString: "",
+    assignmentMode: "",
+  };
+}
+
+function normalizeGpuPassthrough(value) {
+  const safeValue = value && typeof value === "object" ? value : {};
+  return {
+    enabled: Boolean(safeValue.enabled),
+    gpuId: typeof safeValue.gpuId === "string" ? safeValue.gpuId : "",
+    pcieBusString: typeof safeValue.pcieBusString === "string" ? safeValue.pcieBusString : "",
+    assignmentMode: typeof safeValue.assignmentMode === "string" ? safeValue.assignmentMode : "",
+  };
+}
+
+function normalizeGpuDevice(gpu, hostServerId = "") {
+  const safeGpu = gpu && typeof gpu === "object" ? gpu : {};
+  const displayName =
+    typeof safeGpu.displayName === "string" && safeGpu.displayName.trim()
+      ? safeGpu.displayName.trim()
+      : typeof safeGpu.model === "string"
+        ? safeGpu.model.trim()
+        : "";
+
+  return {
+    id: typeof safeGpu.id === "string" && safeGpu.id.trim() ? safeGpu.id : `gpu-${crypto.randomUUID()}`,
+    hostServerId: typeof safeGpu.hostServerId === "string" && safeGpu.hostServerId.trim()
+      ? safeGpu.hostServerId
+      : hostServerId,
+    displayName,
+    vendor: typeof safeGpu.vendor === "string" ? safeGpu.vendor.trim() : "",
+    model: typeof safeGpu.model === "string" ? safeGpu.model.trim() : "",
+    pcieBusString: typeof safeGpu.pcieBusString === "string" ? safeGpu.pcieBusString.trim() : "",
+    bus: typeof safeGpu.bus === "string" ? safeGpu.bus.trim() : "",
+    device: typeof safeGpu.device === "string" ? safeGpu.device.trim() : "",
+    function: typeof safeGpu.function === "string" ? safeGpu.function.trim() : "",
+    hypervLocationPath: typeof safeGpu.hypervLocationPath === "string" ? safeGpu.hypervLocationPath.trim() : "",
+    assignedVmId: typeof safeGpu.assignedVmId === "string" ? safeGpu.assignedVmId.trim() : "",
+    assignedVmName: typeof safeGpu.assignedVmName === "string" ? safeGpu.assignedVmName.trim() : "",
+    assignmentMode: "Hyper-V DDA",
+    assignmentStatus:
+      typeof safeGpu.assignmentStatus === "string" && safeGpu.assignmentStatus.trim()
+        ? safeGpu.assignmentStatus.trim()
+        : "missing-vm-link",
+    notes: typeof safeGpu.notes === "string" ? safeGpu.notes.trim() : "",
+  };
+}
+
+function parseGpuSlotCount(value, fallback = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(number));
+}
+
+function inferGpuSlotCount(server) {
+  if (Number.isFinite(Number(server.physicalGpuSlots))) {
+    return parseGpuSlotCount(server.physicalGpuSlots);
+  }
+
+  const gpuSummary = String(server.gpus || "").trim();
+  const summaryCount = Number(gpuSummary.match(/^\d+/)?.[0]);
+  if (Number.isFinite(summaryCount)) {
+    return Math.max(summaryCount, Array.isArray(server.gpuDevices) ? server.gpuDevices.length : 0);
+  }
+
+  return Array.isArray(server.gpuDevices) ? server.gpuDevices.length : 0;
+}
+
+function getServerGpuDevices(server) {
+  return Array.isArray(server?.gpuDevices) ? server.gpuDevices : [];
+}
+
+function getAssignedGpuCount(server) {
+  return getServerGpuDevices(server).filter((gpu) => gpu.assignmentStatus === "assigned").length;
+}
+
+function getAvailableGpuCount(server) {
+  return Math.max(0, parseGpuSlotCount(server?.physicalGpuSlots) - getAssignedGpuCount(server));
+}
+
+function getVmHostServer(vmId) {
+  return servers.find((server) => server.vmIds.includes(vmId)) || null;
+}
+
+function getAllGpuDevices() {
+  return servers.flatMap((server) =>
+    (Array.isArray(server.gpuDevices) ? server.gpuDevices : []).map((gpu) => ({
+      ...gpu,
+      hostServerId: server.id,
+    })),
+  );
+}
+
+function getGpuById(gpuId) {
+  return getAllGpuDevices().find((gpu) => gpu.id === gpuId) || null;
+}
+
+function getGpuDevicesForVm(vmId) {
+  return getAllGpuDevices().filter((gpu) => gpu.assignedVmId === vmId);
+}
+
+function getGpuDevicesForValidation() {
+  return servers.flatMap((server) => {
+    const devices = server.id === selectedServerId ? gpuDraftDevices : server.gpuDevices;
+    return (Array.isArray(devices) ? devices : []).map((gpu) => ({
+      ...gpu,
+      hostServerId: server.id,
+    }));
+  });
+}
+
+function getDuplicatePcieBusStrings(devices = getAllGpuDevices()) {
+  const counts = new Map();
+  devices.forEach((gpu) => {
+    const key = String(gpu.pcieBusString || "").trim().toLowerCase();
+    if (key) {
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  });
+
+  return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function getGpuAssignmentStatus(gpu, hostServerId, devices = getAllGpuDevices()) {
+  const pcieKey = String(gpu.pcieBusString || "").trim().toLowerCase();
+  const duplicatePcie = pcieKey && getDuplicatePcieBusStrings(devices).has(pcieKey);
+  const assignedVm = getVm(gpu.assignedVmId);
+  const hostServer = getServer(hostServerId);
+  const vmHostServer = gpu.assignedVmId ? getVmHostServer(gpu.assignedVmId) : null;
+
+  if (!gpu.pcieBusString) {
+    return "unavailable";
+  }
+
+  if (!gpu.assignedVmId) {
+    return "missing-vm-link";
+  }
+
+  if (duplicatePcie || (assignedVm && hostServer && vmHostServer?.id !== hostServer.id)) {
+    return "conflict";
+  }
+
+  if (!assignedVm || !hostServer) {
+    return "unavailable";
+  }
+
+  return "assigned";
+}
+
+function getGpuStatusLabel(status) {
+  const labels = {
+    assigned: "Assigned",
+    "missing-vm-link": "Missing VM link",
+    conflict: "Conflict",
+    unavailable: "Unavailable",
+  };
+  return labels[status] || "Needs review";
+}
+
+function releaseGpuAssignmentsForVm(vmId) {
+  servers.forEach((server) => {
+    server.gpuDevices = getServerGpuDevices(server).filter((gpu) => gpu.assignedVmId !== vmId);
+  });
+
+  if (selectedServerId) {
+    const selectedServer = getServer(selectedServerId);
+    gpuDraftDevices = selectedServer ? clone(selectedServer.gpuDevices || []) : [];
+  }
+}
+
+function setGpuDialogError(message) {
+  gpuDialogError.textContent = message;
+  gpuDialogError.classList.toggle("is-visible", Boolean(message));
+}
+
+function closeGpuAssignmentDialog() {
+  pendingGpuAssignment = null;
+  gpuAssignmentDialog.hidden = true;
+  gpuDialogLocationInput.value = "";
+  setGpuDialogError("");
+}
+
+function openGpuAssignmentDialog(vmId, serverId) {
+  const server = getServer(serverId);
+  const vm = getVm(vmId);
+  if (!server || !vm) {
+    return;
+  }
+
+  syncGpuAssignments();
+  const availableGpuCount = getAvailableGpuCount(server);
+  if (availableGpuCount <= 0) {
+    return;
+  }
+
+  pendingGpuAssignment = { vmId, serverId };
+  gpuDialogContext.textContent = `${server.name} has ${availableGpuCount} GPU slot${availableGpuCount === 1 ? "" : "s"} left. Assign one to ${vm.name} by entering the PCIe / Hyper-V location path.`;
+  gpuDialogLocationInput.value = SAMPLE_PCIE_LOCATION_PATH;
+  setGpuDialogError("");
+  gpuAssignmentDialog.hidden = false;
+  requestAnimationFrame(() => {
+    gpuDialogLocationInput.focus();
+    gpuDialogLocationInput.select();
+  });
+}
+
+function assignPendingGpuPassthrough(locationPath) {
+  if (!pendingGpuAssignment) {
+    return false;
+  }
+
+  const server = getServer(pendingGpuAssignment.serverId);
+  const vm = getVm(pendingGpuAssignment.vmId);
+  if (!server || !vm) {
+    setGpuDialogError("The VM or server no longer exists.");
+    return false;
+  }
+
+  syncGpuAssignments();
+  if (getAvailableGpuCount(server) <= 0) {
+    setGpuDialogError("This server does not have a GPU slot left.");
+    return false;
+  }
+
+  if (!locationPath) {
+    setGpuDialogError("Enter the GPU PCIe / Hyper-V location path.");
+    return false;
+  }
+
+  const duplicatePcie = getAllGpuDevices().some((gpu) => {
+    return String(gpu.pcieBusString || "").trim().toLowerCase() === locationPath.toLowerCase();
+  });
+  if (duplicatePcie) {
+    setGpuDialogError("Another GPU already uses this PCIe / Hyper-V location path.");
+    return false;
+  }
+
+  server.gpuDevices.push(
+    normalizeGpuDevice(
+      {
+        id: makeGpuId(`${vm.name}-gpu`),
+        hostServerId: server.id,
+        displayName: "GPU passthrough",
+        vendor: "GPU",
+        model: "",
+        pcieBusString: locationPath,
+        hypervLocationPath: locationPath,
+        assignedVmId: vm.id,
+        assignedVmName: vm.name,
+        assignmentMode: "Hyper-V DDA",
+        assignmentStatus: "assigned",
+        notes: "Assigned when VM was dropped onto server.",
+      },
+      server.id,
+    ),
+  );
+
+  syncGpuAssignments();
+  refreshGpuDraftFromSelectedServer();
+  render();
+  saveConfig();
+  closeGpuAssignmentDialog();
+  return true;
+}
+
+function syncGpuAssignments() {
+  const previousGpuRefs = new Map(
+    vms.map((vm) => [vm.id, normalizeGpuPassthrough(vm.gpuPassthrough)]),
+  );
+  const hostByVmId = new Map();
+  servers.forEach((server) => {
+    server.vmIds = Array.isArray(server.vmIds) ? server.vmIds : [];
+    server.vmIds.forEach((vmId) => hostByVmId.set(vmId, server.id));
+  });
+
+  vms.forEach((vm) => {
+    vm.hostServerId = hostByVmId.get(vm.id) || "";
+    vm.gpuPassthrough = getEmptyGpuPassthrough();
+    vm.gpuPassthroughWarning = "";
+  });
+
+  const allDevices = getAllGpuDevices();
+  servers.forEach((server) => {
+    server.gpuDevices = (Array.isArray(server.gpuDevices) ? server.gpuDevices : []).map((gpu) => {
+      const assignedVm = getVm(gpu.assignedVmId);
+      const normalizedGpu = normalizeGpuDevice(
+        {
+          ...gpu,
+          hostServerId: server.id,
+          assignedVmName: assignedVm ? assignedVm.name : gpu.assignedVmName,
+        },
+        server.id,
+      );
+      normalizedGpu.assignmentStatus = getGpuAssignmentStatus(normalizedGpu, server.id, allDevices);
+
+      if (assignedVm && normalizedGpu.assignmentStatus === "assigned") {
+        assignedVm.gpuPassthrough = {
+          enabled: true,
+          gpuId: normalizedGpu.id,
+          pcieBusString: normalizedGpu.pcieBusString,
+          assignmentMode: normalizedGpu.assignmentMode,
+        };
+      }
+
+      return normalizedGpu;
+    });
+  });
+
+  vms.forEach((vm) => {
+    const previousRef = previousGpuRefs.get(vm.id);
+    if (!vm.gpuPassthrough.enabled && previousRef?.enabled) {
+      vm.gpuPassthrough = previousRef;
+      vm.gpuPassthroughWarning =
+        !previousRef.gpuId || !previousRef.pcieBusString
+          ? "GPU passthrough reference is incomplete."
+          : "GPU passthrough reference does not match a GPU on this host.";
+    }
+  });
+}
+
 function getNextAvailableIp(excludeServerId = null) {
   const subnet = getCurrentSubnet();
   if (!subnet) {
@@ -400,10 +788,25 @@ function getNextAvailableIp(excludeServerId = null) {
 }
 
 function normalizeServer(server) {
+  const safeServer = server && typeof server === "object" ? server : {};
   return {
-    ...server,
-    staticIp: typeof server.staticIp === "string" ? server.staticIp : "",
-    vmIds: Array.isArray(server.vmIds) ? server.vmIds : [],
+    ...safeServer,
+    staticIp: typeof safeServer.staticIp === "string" ? safeServer.staticIp : "",
+    vmIds: Array.isArray(safeServer.vmIds) ? safeServer.vmIds : [],
+    physicalGpuSlots: inferGpuSlotCount(safeServer),
+    gpuDevices: Array.isArray(safeServer.gpuDevices)
+      ? safeServer.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, safeServer.id))
+      : [],
+  };
+}
+
+function normalizeVm(vm) {
+  const safeVm = vm && typeof vm === "object" ? vm : {};
+  return {
+    ...safeVm,
+    hostServerId: typeof safeVm.hostServerId === "string" ? safeVm.hostServerId : "",
+    gpuPassthrough: normalizeGpuPassthrough(safeVm.gpuPassthrough),
+    gpuPassthroughWarning: typeof safeVm.gpuPassthroughWarning === "string" ? safeVm.gpuPassthroughWarning : "",
   };
 }
 
@@ -431,7 +834,7 @@ function normalizeConfig(config) {
       ? safeConfig.infrastructureNodes.map(normalizeInfrastructureNode)
       : fallback.infrastructureNodes.map(normalizeInfrastructureNode),
     links: Array.isArray(safeConfig.links) ? safeConfig.links : fallback.links,
-    vms: Array.isArray(safeConfig.vms) ? safeConfig.vms : fallback.vms,
+    vms: (Array.isArray(safeConfig.vms) ? safeConfig.vms : fallback.vms).map(normalizeVm),
   };
 }
 
@@ -453,9 +856,12 @@ function applyConfig(config) {
   if (desktop && !desktop.staticIp) {
     desktop.staticIp = getNextAvailableIp();
   }
+
+  syncGpuAssignments();
 }
 
 function serializeConfig() {
+  syncGpuAssignments();
   return {
     servers,
     network,
@@ -561,6 +967,291 @@ function getNextServerPosition() {
   };
 }
 
+function getHostedVmsForServer(serverId) {
+  const server = getServer(serverId);
+  if (!server) {
+    return [];
+  }
+
+  return server.vmIds.map((vmId) => getVm(vmId)).filter(Boolean);
+}
+
+function makeGpuId(displayName) {
+  const baseId = slugify(displayName) || "gpu-device";
+  let id = baseId;
+  let suffix = 2;
+  const existingIds = new Set([...getAllGpuDevices(), ...gpuDraftDevices].map((gpu) => gpu.id));
+
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
+}
+
+function clearGpuWarning() {
+  gpuWarning.textContent = "";
+  gpuWarning.classList.remove("is-visible");
+}
+
+function showGpuWarning(message) {
+  gpuWarning.textContent = message;
+  gpuWarning.classList.add("is-visible");
+}
+
+function getGpuFormData() {
+  return {
+    displayName: gpuDisplayNameInput.value.trim(),
+    vendor: gpuVendorInput.value.trim(),
+    model: gpuModelInput.value.trim(),
+    pcieBusString: gpuPcieBusInput.value.trim(),
+    bus: gpuBusInput.value.trim(),
+    device: gpuDeviceInput.value.trim(),
+    function: gpuFunctionInput.value.trim(),
+    hypervLocationPath: gpuHypervPathInput.value.trim(),
+    assignedVmId: gpuAssignedVmSelect.value,
+    assignmentMode: "Hyper-V DDA",
+    notes: gpuNotesInput.value.trim(),
+  };
+}
+
+function fillGpuForm(gpu) {
+  selectedGpuId = gpu.id;
+  gpuDisplayNameInput.value = gpu.displayName;
+  gpuVendorInput.value = gpu.vendor;
+  gpuModelInput.value = gpu.model;
+  gpuPcieBusInput.value = gpu.pcieBusString;
+  gpuBusInput.value = gpu.bus || "";
+  gpuDeviceInput.value = gpu.device || "";
+  gpuFunctionInput.value = gpu.function || "";
+  gpuHypervPathInput.value = gpu.hypervLocationPath || "";
+  gpuAssignedVmSelect.value = gpu.assignedVmId || "";
+  gpuNotesInput.value = gpu.notes || "";
+  clearGpuWarning();
+  renderGpuEditor();
+}
+
+function resetGpuForm() {
+  selectedGpuId = null;
+  gpuDisplayNameInput.value = "";
+  gpuVendorInput.value = "NVIDIA";
+  gpuModelInput.value = "";
+  gpuPcieBusInput.value = "";
+  gpuBusInput.value = "";
+  gpuDeviceInput.value = "";
+  gpuFunctionInput.value = "";
+  gpuHypervPathInput.value = "";
+  gpuAssignedVmSelect.value = "";
+  gpuNotesInput.value = "";
+  clearGpuWarning();
+  renderGpuEditor();
+}
+
+function refreshGpuDraftFromSelectedServer() {
+  const selectedServer = getServer(selectedServerId);
+  gpuDraftDevices = selectedServer ? clone(selectedServer.gpuDevices || []) : [];
+}
+
+function renderGpuAssignmentOptions() {
+  const hostedVms = getHostedVmsForServer(selectedServerId);
+  const currentAssignedVmId = gpuAssignedVmSelect.value;
+  gpuAssignedVmSelect.innerHTML = `<option value="">Select hosted VM</option>`;
+
+  hostedVms.forEach((vm) => {
+    const option = document.createElement("option");
+    option.value = vm.id;
+    option.textContent = vm.name;
+    gpuAssignedVmSelect.appendChild(option);
+  });
+
+  if (currentAssignedVmId && !hostedVms.some((vm) => vm.id === currentAssignedVmId)) {
+    const missingVm = getVm(currentAssignedVmId);
+    const option = document.createElement("option");
+    option.value = currentAssignedVmId;
+    option.textContent = missingVm ? `${missingVm.name} (not on this server)` : `${currentAssignedVmId} (missing)`;
+    gpuAssignedVmSelect.appendChild(option);
+  }
+
+  gpuAssignedVmSelect.value = currentAssignedVmId;
+}
+
+function makeGpuStatusText(gpu) {
+  const assignedVm = getVm(gpu.assignedVmId);
+  if (gpu.assignmentStatus === "assigned") {
+    return `Assigned VM: ${assignedVm?.name || gpu.assignedVmName}`;
+  }
+
+  if (gpu.assignmentStatus === "missing-vm-link") {
+    return "GPU requires a linked VM assignment.";
+  }
+
+  if (gpu.assignmentStatus === "conflict") {
+    return "Conflict: duplicate PCIe path or VM is not hosted here.";
+  }
+
+  return "Unavailable: GPU or VM reference is missing.";
+}
+
+function renderGpuDraftList() {
+  const slotCount = parseGpuSlotCount(serverGpuSlotsInput.value);
+  const assignedCount = gpuDraftDevices.filter((gpu) => gpu.assignmentStatus === "assigned").length;
+  const availableCount = Math.max(0, slotCount - assignedCount);
+  const accounting = `
+    <div class="gpu-accounting">
+      <span><strong>${slotCount}</strong>Total</span>
+      <span><strong>${assignedCount}</strong>Assigned</span>
+      <span><strong>${availableCount}</strong>Left</span>
+    </div>
+  `;
+
+  if (!gpuDraftDevices.length) {
+    gpuDeviceList.innerHTML = `
+      ${accounting}
+      <div class="gpu-empty">No GPU passthrough assignments yet. Drop a VM onto this server to assign one.</div>
+    `;
+    return;
+  }
+
+  const validationDevices = getGpuDevicesForValidation();
+  gpuDeviceList.innerHTML = `
+    ${accounting}
+    ${gpuDraftDevices
+      .map((gpu) => {
+        const normalizedGpu = normalizeGpuDevice(gpu, selectedServerId || gpu.hostServerId);
+        normalizedGpu.assignmentStatus = getGpuAssignmentStatus(normalizedGpu, selectedServerId, validationDevices);
+        return `
+          <button class="gpu-device-row ${normalizedGpu.id === selectedGpuId ? "is-editing" : ""}" type="button" data-gpu-id="${escapeHtml(normalizedGpu.id)}">
+            <strong>${escapeHtml(normalizedGpu.displayName || "GPU passthrough")}</strong>
+            <span>${escapeHtml(normalizedGpu.pcieBusString || "PCIe path missing")}</span>
+            <em class="gpu-status ${escapeHtml(normalizedGpu.assignmentStatus)}">${escapeHtml(getGpuStatusLabel(normalizedGpu.assignmentStatus))}</em>
+            <small>${escapeHtml(makeGpuStatusText(normalizedGpu))}</small>
+          </button>
+        `;
+      })
+      .join("")}
+  `;
+}
+
+function renderGpuEditor() {
+  renderGpuAssignmentOptions();
+  renderGpuDraftList();
+  gpuSubmit.textContent = selectedGpuId ? "Save GPU" : "Add GPU";
+  gpuDeleteButton.disabled = !selectedGpuId;
+
+  const isEditingServer = Boolean(getServer(selectedServerId));
+  const disabled = !isEditingServer;
+  [
+    gpuDisplayNameInput,
+    gpuVendorInput,
+    gpuModelInput,
+    gpuPcieBusInput,
+    gpuBusInput,
+    gpuDeviceInput,
+    gpuFunctionInput,
+    gpuHypervPathInput,
+    gpuAssignedVmSelect,
+    gpuNotesInput,
+    gpuSubmit,
+    gpuNewButton,
+    gpuDeleteButton,
+  ].forEach((element) => {
+    element.disabled = disabled || (element === gpuDeleteButton && !selectedGpuId);
+  });
+
+  if (disabled) {
+    gpuWarning.textContent = "Save the server first. Then drag a VM onto it and assign a GPU location path during the drop.";
+    gpuWarning.classList.add("is-visible");
+  } else if (!gpuWarning.textContent) {
+    clearGpuWarning();
+  }
+}
+
+function saveGpuDraftDevice() {
+  if (!selectedServerId || !getServer(selectedServerId)) {
+    showGpuWarning("Save the server before adding Hyper-V GPU passthrough devices.");
+    return;
+  }
+
+  const values = getGpuFormData();
+  const assignedVm = getVm(values.assignedVmId);
+  const hostedVmIds = new Set(getHostedVmsForServer(selectedServerId).map((vm) => vm.id));
+
+  if (!values.displayName) {
+    showGpuWarning("GPU requires a display name or model.");
+    gpuDisplayNameInput.focus();
+    return;
+  }
+
+  if (!values.pcieBusString) {
+    showGpuWarning("GPU requires a PCIe bus string / location path.");
+    gpuPcieBusInput.focus();
+    return;
+  }
+
+  if (!values.assignedVmId) {
+    showGpuWarning("GPU requires a linked VM assignment before it can be shown as assigned.");
+    gpuAssignedVmSelect.focus();
+    return;
+  }
+
+  if (!assignedVm || !hostedVmIds.has(values.assignedVmId)) {
+    showGpuWarning("Assigned VM must be loaded on this same host server.");
+    gpuAssignedVmSelect.focus();
+    return;
+  }
+
+  const duplicatePcie = getGpuDevicesForValidation().some((gpu) => {
+    return (
+      gpu.id !== selectedGpuId &&
+      String(gpu.pcieBusString || "").trim().toLowerCase() === values.pcieBusString.toLowerCase()
+    );
+  });
+
+  if (duplicatePcie) {
+    showGpuWarning("Another GPU already uses this PCIe bus string.");
+    gpuPcieBusInput.focus();
+    return;
+  }
+
+  const gpu = normalizeGpuDevice(
+    {
+      ...values,
+      id: selectedGpuId || makeGpuId(values.displayName),
+      hostServerId: selectedServerId,
+      assignedVmName: assignedVm.name,
+      assignmentStatus: "assigned",
+    },
+    selectedServerId,
+  );
+
+  if (selectedGpuId) {
+    gpuDraftDevices = gpuDraftDevices.map((item) => (item.id === selectedGpuId ? gpu : item));
+  } else {
+    gpuDraftDevices.push(gpu);
+    selectedGpuId = gpu.id;
+  }
+
+  clearGpuWarning();
+  fillGpuForm(gpu);
+}
+
+function deleteGpuDraftDevice() {
+  if (!selectedGpuId) {
+    return;
+  }
+
+  gpuDraftDevices = gpuDraftDevices.filter((gpu) => gpu.id !== selectedGpuId);
+  resetGpuForm();
+}
+
+function selectGpuDraftDevice(gpuId) {
+  const gpu = gpuDraftDevices.find((item) => item.id === gpuId);
+  if (gpu) {
+    fillGpuForm(gpu);
+  }
+}
+
 function getServerFormData() {
   const formData = new FormData(serverForm);
 
@@ -571,6 +1262,8 @@ function getServerFormData() {
     ram: String(formData.get("ram")).trim(),
     storage: String(formData.get("storage")).trim(),
     gpus: String(formData.get("gpus")).trim(),
+    physicalGpuSlots: parseGpuSlotCount(formData.get("gpuSlots")),
+    gpuDevices: clone(gpuDraftDevices),
   };
 }
 
@@ -581,18 +1274,26 @@ function fillServerForm(server) {
   serverForm.elements.ram.value = server.ram;
   serverForm.elements.storage.value = server.storage;
   serverForm.elements.gpus.value = server.gpus;
+  serverGpuSlotsInput.value = parseGpuSlotCount(server.physicalGpuSlots);
+  gpuDraftDevices = clone(server.gpuDevices || []);
+  selectedGpuId = null;
+  resetGpuForm();
 }
 
 function resetServerForm() {
   selectedServerId = null;
   selectedNodeId = null;
   joinMode = false;
+  selectedGpuId = null;
+  gpuDraftDevices = [];
   serverForm.elements.name.value = getNextServerName();
   serverForm.elements.staticIp.value = getNextAvailableIp();
   serverForm.elements.cpu.value = "24 vCPU";
   serverForm.elements.ram.value = "96 GB";
   serverForm.elements.storage.value = "3 TB SSD";
   serverForm.elements.gpus.value = "None";
+  serverGpuSlotsInput.value = 0;
+  resetGpuForm();
   render();
 }
 
@@ -641,6 +1342,78 @@ function selectServerForEdit(serverId) {
   render();
 }
 
+function makeServerGpuAssignments(server) {
+  const gpuDevices = Array.isArray(server.gpuDevices) ? server.gpuDevices : [];
+  const totalSlots = parseGpuSlotCount(server.physicalGpuSlots);
+  const assignedCount = getAssignedGpuCount(server);
+  const availableCount = getAvailableGpuCount(server);
+
+  if (!totalSlots && !gpuDevices.length) {
+    return "";
+  }
+
+  return `
+    <div class="gpu-assignment-panel">
+      <strong>GPU Passthrough</strong>
+      <div class="server-gpu-accounting">
+        <span>${assignedCount}/${totalSlots} assigned</span>
+        <span>${availableCount} left</span>
+      </div>
+      ${
+        gpuDevices.length
+          ? gpuDevices
+              .map((gpu) => {
+                const assignedVm = getVm(gpu.assignedVmId);
+                const status = gpu.assignmentStatus || getGpuAssignmentStatus(gpu, server.id);
+                return `
+                  <div class="gpu-assignment ${escapeHtml(status)}">
+                    <span>${escapeHtml(gpu.displayName || gpu.model || "GPU passthrough")}</span>
+                    <small>PCIe: ${escapeHtml(gpu.pcieBusString || "Missing")}</small>
+                    <small>Assigned VM: ${escapeHtml(assignedVm?.name || gpu.assignedVmName || "Missing")}</small>
+                    <small>Mode: ${escapeHtml(gpu.assignmentMode || "Hyper-V DDA")}</small>
+                    <em>${escapeHtml(getGpuStatusLabel(status))}</em>
+                  </div>
+                `;
+              })
+              .join("")
+          : `<div class="gpu-assignment empty"><span>No assigned GPU passthrough</span><small>Drop a VM here to assign one.</small></div>`
+      }
+    </div>
+  `;
+}
+
+function makeVmGpuDetails(vm) {
+  const assignedGpus = getGpuDevicesForVm(vm.id).filter((gpu) => gpu.assignmentStatus === "assigned");
+  if (!assignedGpus.length && !vm.gpuPassthrough?.enabled) {
+    return "";
+  }
+
+  if (!assignedGpus.length && vm.gpuPassthroughWarning) {
+    return `
+      <div class="vm-gpu-detail is-warning">
+        <strong>GPU Passthrough</strong>
+        <span>${escapeHtml(vm.gpuPassthroughWarning)}</span>
+        <span>PCIe: ${escapeHtml(vm.gpuPassthrough.pcieBusString || "Missing")}</span>
+      </div>
+    `;
+  }
+
+  return assignedGpus
+    .map((gpu) => {
+      const hostServer = getServer(gpu.hostServerId);
+      return `
+        <div class="vm-gpu-detail">
+          <strong>GPU Passthrough</strong>
+          <span>${escapeHtml(gpu.displayName || gpu.model || "Unnamed GPU")}</span>
+          <span>PCIe: ${escapeHtml(gpu.pcieBusString)}</span>
+          <span>Host: ${escapeHtml(hostServer?.name || gpu.hostServerId || "Missing")}</span>
+          <span>Mode: ${escapeHtml(gpu.assignmentMode || "Hyper-V DDA")}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 function makeVmCard(vm) {
   const card = document.createElement("div");
   card.className = "vm-card";
@@ -649,7 +1422,17 @@ function makeVmCard(vm) {
   if (vm.id === selectedVmId) {
     card.classList.add("is-editing");
   }
-  card.innerHTML = `<strong>${escapeHtml(vm.name)}</strong><span>${escapeHtml(vm.size)}</span>`;
+  if (getGpuDevicesForVm(vm.id).some((gpu) => gpu.assignmentStatus === "assigned")) {
+    card.classList.add("has-gpu-passthrough");
+  }
+  if (vm.gpuPassthroughWarning) {
+    card.classList.add("has-gpu-warning");
+  }
+  card.innerHTML = `
+    <strong>${escapeHtml(vm.name)}</strong>
+    <span>${escapeHtml(vm.size)}</span>
+    ${makeVmGpuDetails(vm)}
+  `;
   card.addEventListener("dragstart", (event) => {
     event.dataTransfer.setData("text/plain", vm.id);
     event.dataTransfer.effectAllowed = "move";
@@ -662,6 +1445,14 @@ function makeVmCard(vm) {
 }
 
 function moveVmToServer(vmId, serverId) {
+  const previousHost = getVmHostServer(vmId);
+  const isMovingToDifferentServer = serverId !== "pool" && previousHost?.id !== serverId;
+  const isUnloadingVm = serverId === "pool";
+
+  if (isMovingToDifferentServer || isUnloadingVm) {
+    releaseGpuAssignmentsForVm(vmId);
+  }
+
   servers.forEach((server) => {
     server.vmIds = server.vmIds.filter((id) => id !== vmId);
   });
@@ -673,8 +1464,14 @@ function moveVmToServer(vmId, serverId) {
     }
   }
 
+  syncGpuAssignments();
+  refreshGpuDraftFromSelectedServer();
   render();
   saveConfig();
+
+  if (isMovingToDifferentServer) {
+    openGpuAssignmentDialog(vmId, serverId);
+  }
 }
 
 function attachDropZone(element, serverId) {
@@ -751,6 +1548,7 @@ function makeNodeElement(node) {
           <span>${escapeHtml(server.storage)}</span>
           <span>${escapeHtml(server.gpus)}</span>
         </div>
+        ${makeServerGpuAssignments(server)}
         <div class="vm-bay" aria-label="VMs loaded on ${escapeHtml(server.name)}"></div>
       </div>
     `;
@@ -1015,11 +1813,13 @@ function renderVmFormState() {
 }
 
 function render() {
+  syncGpuAssignments();
   renderCounters();
   renderNetworkSettings();
   renderJoinState();
   renderServerFormState();
   renderVmFormState();
+  renderGpuEditor();
   renderNodes();
   requestAnimationFrame(renderLinks);
   renderVmPool();
@@ -1081,6 +1881,7 @@ function deleteSelectedVm() {
   servers.forEach((server) => {
     server.vmIds = server.vmIds.filter((vmId) => vmId !== deletedId);
   });
+  syncGpuAssignments();
   resetVmForm();
   saveConfig();
 }
@@ -1106,6 +1907,8 @@ function createServer(values) {
     ram: values.ram,
     storage: values.storage,
     gpus: values.gpus,
+    physicalGpuSlots: values.physicalGpuSlots,
+    gpuDevices: values.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, id)),
     vmIds: [],
     x: position.x,
     y: position.y,
@@ -1129,6 +1932,8 @@ function updateSelectedServer(values) {
   server.ram = values.ram;
   server.storage = values.storage;
   server.gpus = values.gpus;
+  server.physicalGpuSlots = values.physicalGpuSlots;
+  server.gpuDevices = values.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, server.id));
 }
 
 function saveServer(event) {
@@ -1160,7 +1965,15 @@ function saveServer(event) {
     return;
   }
 
+  const assignedGpuCount = values.gpuDevices.filter((gpu) => gpu.assignmentStatus === "assigned").length;
+  if (values.physicalGpuSlots < assignedGpuCount) {
+    serverGpuSlotsInput.setCustomValidity("GPU slots cannot be lower than the assigned passthrough GPU count.");
+    serverForm.reportValidity();
+    return;
+  }
+
   serverForm.elements.staticIp.setCustomValidity("");
+  serverGpuSlotsInput.setCustomValidity("");
 
   if (selectedServerId) {
     updateSelectedServer(values);
@@ -1168,6 +1981,7 @@ function saveServer(event) {
     createServer(values);
   }
 
+  syncGpuAssignments();
   render();
   saveConfig();
 }
@@ -1249,6 +2063,34 @@ desktopIpInput.addEventListener("input", () => {
 });
 serverForm.elements.staticIp.addEventListener("input", () => {
   serverForm.elements.staticIp.setCustomValidity("");
+});
+serverGpuSlotsInput.addEventListener("input", () => {
+  serverGpuSlotsInput.setCustomValidity("");
+  renderGpuEditor();
+});
+gpuSubmit.addEventListener("click", saveGpuDraftDevice);
+gpuNewButton.addEventListener("click", resetGpuForm);
+gpuDeleteButton.addEventListener("click", deleteGpuDraftDevice);
+gpuDeviceList.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-gpu-id]");
+  if (row) {
+    selectGpuDraftDevice(row.dataset.gpuId);
+  }
+});
+gpuAssignmentForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  assignPendingGpuPassthrough(gpuDialogLocationInput.value.trim());
+});
+gpuDialogSkip.addEventListener("click", closeGpuAssignmentDialog);
+gpuAssignmentDialog.addEventListener("click", (event) => {
+  if (event.target === gpuAssignmentDialog) {
+    closeGpuAssignmentDialog();
+  }
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !gpuAssignmentDialog.hidden) {
+    closeGpuAssignmentDialog();
+  }
 });
 newServerButton.addEventListener("click", resetServerForm);
 deleteServerButton.addEventListener("click", deleteSelectedServer);

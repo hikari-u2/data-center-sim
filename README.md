@@ -38,6 +38,8 @@ erDiagram
   CONFIG ||--o{ LINK : contains
   CONFIG ||--|| NETWORK : contains
   SERVER ||--o{ VM : hosts
+  SERVER ||--o{ GPU_DEVICE : owns
+  GPU_DEVICE }o--|| VM : assigned_to
   LINK }o--|| SERVER : can_connect
   LINK }o--|| INFRASTRUCTURE_NODE : can_connect
 
@@ -54,6 +56,7 @@ erDiagram
     string storage
     string gpus
     string staticIp
+    array gpuDevices
     number x
     number y
   }
@@ -62,6 +65,23 @@ erDiagram
     string id
     string name
     string size
+    string hostServerId
+    object gpuPassthrough
+  }
+
+  GPU_DEVICE {
+    string id
+    string hostServerId
+    string displayName
+    string vendor
+    string model
+    string pcieBusString
+    string hypervLocationPath
+    string assignedVmId
+    string assignedVmName
+    string assignmentMode
+    string assignmentStatus
+    string notes
   }
 
   INFRASTRUCTURE_NODE {
@@ -114,6 +134,8 @@ The key user workflows are:
 - **Read server**: user clicks a server; app fills the edit form with that server's details.
 - **Update server**: user edits the form; app updates the selected server and saves.
 - **Delete server**: app removes the server, its links, and any VM placement on that server, then saves.
+- **Use compact server form**: on wide screens, the Server CRUD panel uses a two-column form so the main page needs less vertical scrolling.
+- **Track Hyper-V GPU passthrough**: user enters the physical GPU slot count on the server, then drops a VM onto that server and uses the floating GPU assignment window to optionally enter the GPU PCIe / Hyper-V location path for passthrough assignment.
 - **Move device**: user drags a server, desktop, or switch; app saves the new position.
 - **Join devices**: user chooses two devices; app adds a network link and saves.
 - **Load VM**: user drags a VM card onto a server; app assigns that VM to the server and saves.
@@ -181,8 +203,43 @@ Each server shows:
 - CPU
 - RAM
 - Storage
-- GPUs
+- GPU summary
+- Physical GPU slot accounting: total slots, assigned passthrough GPUs, and GPUs left
+- Hyper-V DDA GPU passthrough assignments, with PCIe path, assigned VM, mode, and assignment status
 - VMs loaded on that server
+
+## Hyper-V GPU Passthrough Tracking
+
+The app tracks passthrough GPUs as physical PCIe devices owned by a host server, not as generic capacity. The hardware identity is the PCIe bus string or Hyper-V DDA location path.
+
+The beginner workflow is intentionally small:
+
+1. Add or edit a server and enter the number of physical GPU slots.
+2. Drag a VM onto that server.
+3. If GPU slots are still available, the app opens a floating GPU assignment window.
+4. If yes, edit the prefilled sample GPU PCIe bus / Hyper-V location path and submit it.
+5. The server card updates the assigned GPU count and GPUs left.
+
+Each server can store a `physicalGpuSlots` number and a `gpuDevices` array. Each assigned GPU device stores:
+
+- PCIe bus string / location path
+- Hyper-V DDA location path
+- Assigned VM ID and assigned VM name
+- Assignment mode, currently `Hyper-V DDA`
+- Assignment status: `assigned`, `missing-vm-link`, `conflict`, or `unavailable`
+- Notes
+
+Each VM can also store a `gpuPassthrough` reference so the VM card can show the passed-through GPU, PCIe path, host server, and mode.
+
+Validation rules:
+
+- A GPU passthrough assignment must have a PCIe bus / Hyper-V location path.
+- The assigned VM must be loaded on the same host server.
+- A server cannot save fewer physical GPU slots than it already has assigned.
+- PCIe bus strings must be unique across the app.
+- Duplicate PCIe paths or a VM assigned from the wrong host server show as conflicts.
+- Missing VM links or stale VM GPU references are shown as warnings instead of disappearing silently.
+- Moving or unloading a VM releases its old passthrough assignment so the physical GPU slot becomes available again.
 
 The right-side **Network Addressing** panel stores:
 
@@ -196,7 +253,7 @@ VM cards can be created, edited, deleted, dragged onto a server, or dragged back
 
 You can also:
 
-- Add a server with name, CPU, RAM, storage, and GPUs
+- Add a server with name, CPU, RAM, storage, GPU summary, and physical GPU slot count
 - Click a server to read and edit its details
 - Save changes to update a selected server
 - Delete a selected server and remove its network links

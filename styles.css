@@ -40,13 +40,136 @@ button {
   padding: 24px;
 }
 
+.gpu-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(11, 19, 27, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.gpu-dialog-backdrop[hidden] {
+  display: none;
+}
+
+.gpu-dialog {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(66, 220, 213, 0.28);
+  border-radius: 8px;
+  background: #17232c;
+  color: #ecf5f6;
+  box-shadow:
+    0 24px 60px rgba(3, 10, 16, 0.35),
+    0 0 0 1px rgba(66, 220, 213, 0.08);
+}
+
+.gpu-dialog-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.gpu-dialog-heading span {
+  color: #67d1c7;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gpu-dialog-heading strong {
+  font-size: 1.05rem;
+}
+
+.gpu-dialog-heading p {
+  color: #b8c8ce;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.gpu-assignment-form {
+  display: grid;
+  gap: 12px;
+}
+
+.gpu-assignment-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.gpu-assignment-form label span {
+  color: #9fb2bb;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gpu-assignment-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #40505b;
+  border-radius: 4px;
+  background: #0f1921;
+  color: #f7fbfc;
+}
+
+.gpu-assignment-form input:focus {
+  border-color: #42dcd5;
+  outline: 2px solid rgba(66, 220, 213, 0.16);
+}
+
+.gpu-dialog-error {
+  display: none;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 126, 126, 0.45);
+  border-radius: 4px;
+  background: rgba(127, 29, 29, 0.28);
+  color: #ffd9d9;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.gpu-dialog-error.is-visible {
+  display: block;
+}
+
+.gpu-dialog-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr;
+  gap: 10px;
+}
+
+.gpu-dialog-actions button {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 4px;
+  font-weight: 900;
+}
+
+.gpu-dialog-actions button[type="submit"] {
+  border: 1px solid #42dcd5;
+  background: #2d8c83;
+  color: #f7fbfc;
+}
+
+.gpu-dialog-actions .ghost-button {
+  border-color: #40505b;
+  color: #d3e1e4;
+}
+
 .top-bar {
   display: flex;
   justify-content: space-between;
   gap: 18px;
   align-items: flex-start;
   margin: 0 auto 18px;
-  max-width: 1440px;
+  max-width: min(1680px, calc(100vw - 48px));
 }
 
 .brand-block {
@@ -202,9 +325,9 @@ h1 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(230px, 0.75fr) minmax(620px, 2.25fr) minmax(230px, 0.8fr);
+  grid-template-columns: minmax(360px, 400px) minmax(640px, 1fr) minmax(250px, 290px);
   gap: 18px;
-  max-width: 1440px;
+  max-width: min(1680px, calc(100vw - 48px));
   margin: 0 auto;
   align-items: stretch;
 }
@@ -213,7 +336,7 @@ h1 {
 .vm-panel,
 .network-settings,
 .network-floor {
-  min-height: 720px;
+  min-height: min(720px, calc(100vh - 134px));
 }
 
 .desktop-panel,
@@ -228,7 +351,7 @@ h1 {
 }
 
 .right-rail {
-  min-height: 720px;
+  min-height: min(720px, calc(100vh - 134px));
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 18px;
@@ -273,9 +396,10 @@ h1 {
 }
 
 .server-form {
-  margin-top: 18px;
+  margin-top: 12px;
   display: grid;
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .vm-form {
@@ -285,7 +409,7 @@ h1 {
 }
 
 .form-state {
-  margin-top: 14px;
+  margin-top: 10px;
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -302,6 +426,7 @@ h1 {
 .vm-form label {
   display: grid;
   gap: 5px;
+  min-width: 0;
 }
 
 .server-form label span,
@@ -315,7 +440,8 @@ h1 {
 
 .server-form input,
 .network-form input,
-.vm-form input {
+.vm-form input,
+.server-form select {
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -327,7 +453,8 @@ h1 {
 
 .server-form input:focus,
 .network-form input:focus,
-.vm-form input:focus {
+.vm-form input:focus,
+.server-form select:focus {
   border-color: var(--blue);
   outline: 2px solid rgba(47, 98, 136, 0.16);
 }
@@ -345,9 +472,159 @@ h1 {
 }
 
 .form-actions {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 1fr 0.7fr 0.8fr;
   gap: 8px;
+}
+
+.gpu-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #cbd6dd;
+  border-radius: 6px;
+  background: #f6f9fa;
+}
+
+.gpu-editor-heading {
+  display: grid;
+  gap: 1px;
+}
+
+.gpu-editor-heading span {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: none;
+}
+
+.gpu-editor-heading small,
+.gpu-warning {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.gpu-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gpu-hidden-controls {
+  display: none;
+}
+
+.bdf-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gpu-warning {
+  display: none;
+  padding: 7px 8px;
+  border: 1px solid #e0b35a;
+  border-radius: 4px;
+  background: #fff8e9;
+  color: #7b5210;
+}
+
+.gpu-warning.is-visible {
+  display: block;
+}
+
+.gpu-form-actions {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr 1fr;
+  gap: 8px;
+}
+
+.gpu-device-list {
+  max-height: 146px;
+  display: grid;
+  gap: 7px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.gpu-accounting {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gpu-accounting span {
+  display: grid;
+  gap: 1px;
+  padding: 7px;
+  border: 1px solid #cbd6dd;
+  border-radius: 4px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.gpu-accounting strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.gpu-device-row,
+.gpu-empty {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid #cbd6dd;
+  border-radius: 4px;
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.gpu-device-row {
+  cursor: pointer;
+}
+
+.gpu-device-row.is-editing {
+  border-color: #2d8c83;
+  box-shadow: 0 0 0 2px rgba(45, 140, 131, 0.14);
+}
+
+.gpu-device-row strong {
+  font-size: 0.76rem;
+}
+
+.gpu-device-row span,
+.gpu-device-row small,
+.gpu-empty {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.gpu-status {
+  width: fit-content;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: #e8f4f2;
+  color: #2d645e;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gpu-status.conflict,
+.gpu-status.unavailable,
+.gpu-status.missing-vm-link {
+  background: #fff0f0;
+  color: #9f1d1d;
 }
 
 .server-form button,
@@ -355,6 +632,14 @@ h1 {
   border: 1px solid #213443;
   background: #263743;
   color: #f7fbfc;
+}
+
+.server-form .gpu-device-row {
+  min-height: auto;
+  padding: 8px;
+  border: 1px solid #cbd6dd;
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .vm-form-actions {
@@ -449,8 +734,8 @@ h1 {
 }
 
 .tip-box {
-  margin-top: 18px;
-  padding: 12px;
+  margin-top: 12px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #f8fafb;
@@ -458,14 +743,14 @@ h1 {
 
 .tip-box strong {
   display: block;
-  margin-bottom: 5px;
-  font-size: 0.9rem;
+  margin-bottom: 4px;
+  font-size: 0.84rem;
 }
 
 .tip-box p {
   color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .network-floor {
@@ -679,6 +964,92 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.gpu-assignment-panel {
+  display: grid;
+  gap: 6px;
+  margin: 7px 0;
+}
+
+.gpu-assignment-panel > strong {
+  color: #d7e4e7;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.server-gpu-accounting {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.server-gpu-accounting span {
+  padding: 3px 5px;
+  border: 1px solid rgba(75, 185, 176, 0.26);
+  border-radius: 3px;
+  background: rgba(18, 44, 49, 0.82);
+  color: #a8d6ce;
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gpu-assignment {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid rgba(75, 185, 176, 0.28);
+  border-left: 4px solid #3aa59b;
+  border-radius: 3px;
+  background: rgba(14, 31, 38, 0.9);
+}
+
+.gpu-assignment.conflict,
+.gpu-assignment.unavailable,
+.gpu-assignment.missing-vm-link {
+  border-color: rgba(159, 29, 29, 0.7);
+  border-left-color: #cc3f3f;
+}
+
+.gpu-assignment.empty {
+  border-color: rgba(255, 255, 255, 0.13);
+  border-left-color: #6e7d87;
+}
+
+.gpu-assignment span {
+  color: #effbfc;
+  font-size: 0.72rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.gpu-assignment small {
+  color: #b8c8ce;
+  font-size: 0.62rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.gpu-assignment em {
+  width: fit-content;
+  margin-top: 2px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(70, 169, 116, 0.2);
+  color: #9be0bf;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.gpu-assignment.conflict em,
+.gpu-assignment.unavailable em,
+.gpu-assignment.missing-vm-link em {
+  background: rgba(159, 29, 29, 0.24);
+  color: #ffb7b7;
+}
+
 .switch-topology {
   width: 154px;
   min-height: 96px;
@@ -792,6 +1163,41 @@ h1 {
   font-weight: 700;
 }
 
+.vm-card.has-gpu-passthrough {
+  border-left-color: #2d8c83;
+}
+
+.vm-card.has-gpu-warning {
+  border-left-color: #9f1d1d;
+}
+
+.vm-gpu-detail {
+  display: grid;
+  gap: 1px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #d7e0e4;
+}
+
+.vm-gpu-detail strong {
+  color: #2d645e;
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vm-gpu-detail span {
+  color: #43525b;
+  font-size: 0.62rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.vm-gpu-detail.is-warning strong,
+.vm-gpu-detail.is-warning span {
+  color: #9f1d1d;
+}
+
 .vm-pool {
   min-height: 112px;
   max-height: 166px;
@@ -835,7 +1241,7 @@ h1 {
   width: 100%;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1320px) {
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -849,6 +1255,12 @@ h1 {
 
   .topology-canvas {
     min-height: 680px;
+  }
+}
+
+@media (max-width: 1320px) {
+  .server-form {
+    grid-template-columns: 1fr;
   }
 }
 

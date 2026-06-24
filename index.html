@@ -76,9 +76,37 @@
               <input id="server-storage" name="storage" value="3 TB SSD" autocomplete="off" required />
             </label>
             <label>
-              <span>GPUs</span>
+              <span>GPU Summary</span>
               <input id="server-gpus" name="gpus" value="None" autocomplete="off" required />
             </label>
+            <label>
+              <span>Physical GPU Slots</span>
+              <input id="server-gpu-slots" name="gpuSlots" type="number" min="0" step="1" value="0" autocomplete="off" />
+            </label>
+
+            <section class="gpu-editor" aria-label="Hyper-V GPU passthrough tracking">
+              <div class="gpu-editor-heading">
+                <span>GPU Passthrough Accounting</span>
+                <small>Drop a VM onto this server to assign a GPU by PCIe / Hyper-V location path.</small>
+              </div>
+              <div id="gpu-warning" class="gpu-warning" role="alert"></div>
+              <div id="gpu-device-list" class="gpu-device-list"></div>
+              <div class="gpu-hidden-controls" aria-hidden="true">
+                <input id="gpu-display-name" autocomplete="off" tabindex="-1" />
+                <input id="gpu-vendor" value="GPU" autocomplete="off" tabindex="-1" />
+                <input id="gpu-model" autocomplete="off" tabindex="-1" />
+                <input id="gpu-pcie-bus" autocomplete="off" tabindex="-1" />
+                <input id="gpu-bus" autocomplete="off" tabindex="-1" />
+                <input id="gpu-device" autocomplete="off" tabindex="-1" />
+                <input id="gpu-function" autocomplete="off" tabindex="-1" />
+                <input id="gpu-hyperv-path" autocomplete="off" tabindex="-1" />
+                <select id="gpu-assigned-vm" tabindex="-1"></select>
+                <input id="gpu-notes" autocomplete="off" tabindex="-1" />
+                <button id="gpu-submit" type="button" tabindex="-1">Add GPU</button>
+                <button id="gpu-new" type="button" tabindex="-1">New GPU</button>
+                <button id="gpu-delete" type="button" tabindex="-1">Delete GPU</button>
+              </div>
+            </section>
             <div class="form-actions">
               <button id="server-submit" type="submit">Add Server</button>
               <button id="new-server" class="secondary-button" type="button">New</button>
@@ -173,6 +201,32 @@
         </aside>
       </section>
     </main>
+
+    <div id="gpu-assignment-dialog" class="gpu-dialog-backdrop" hidden>
+      <section class="gpu-dialog" role="dialog" aria-modal="true" aria-labelledby="gpu-dialog-title">
+        <div class="gpu-dialog-heading">
+          <span>Hyper-V GPU Passthrough</span>
+          <strong id="gpu-dialog-title">Assign GPU to VM</strong>
+          <p id="gpu-dialog-context">Enter the physical GPU PCIe / Hyper-V location path.</p>
+        </div>
+        <form id="gpu-assignment-form" class="gpu-assignment-form">
+          <label>
+            <span>PCIe Bus / Hyper-V Location Path</span>
+            <input
+              id="gpu-dialog-location"
+              autocomplete="off"
+              placeholder="PCIROOT(0)#PCI(1D00)#PCI(0000)"
+              required
+            />
+          </label>
+          <div id="gpu-dialog-error" class="gpu-dialog-error" role="alert"></div>
+          <div class="gpu-dialog-actions">
+            <button id="gpu-dialog-skip" class="ghost-button" type="button">Skip GPU</button>
+            <button type="submit">Assign GPU</button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <script src="app.js"></script>
   </body>
