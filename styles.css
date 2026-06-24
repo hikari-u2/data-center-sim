@@ -365,8 +365,8 @@ h1 {
 .subnet-summary {
   margin-top: 10px;
   min-height: 30px;
-  display: flex;
-  align-items: center;
+  display: grid;
+  gap: 5px;
   padding: 7px 9px;
   border: 1px solid #cbd6dd;
   border-radius: 4px;
@@ -376,7 +376,22 @@ h1 {
   font-weight: 800;
 }
 
+.subnet-summary span {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+}
+
+.subnet-summary strong {
+  color: #5f6f7d;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
 .subnet-summary.is-error {
+  display: flex;
+  align-items: center;
   border-color: #d9a7a7;
   background: #fff6f6;
   color: #9d3d3d;

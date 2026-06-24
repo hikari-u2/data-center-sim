@@ -752,7 +752,10 @@ function renderNetworkSettings() {
     return;
   }
 
-  subnetSummary.textContent = `${subnet.cidr} · mask ${subnet.mask}`;
+  subnetSummary.innerHTML = `
+    <span><strong>CIDR</strong>${escapeHtml(subnet.cidr)}</span>
+    <span><strong>Mask</strong>${escapeHtml(subnet.mask)}</span>
+  `;
   subnetSummary.classList.remove("is-error");
 }
 
