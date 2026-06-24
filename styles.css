@@ -211,18 +211,35 @@ h1 {
 
 .desktop-panel,
 .vm-panel,
+.network-settings,
 .network-floor {
   min-height: 720px;
 }
 
 .desktop-panel,
 .vm-panel,
+.network-settings,
 .network-floor {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.right-rail {
+  min-height: 720px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+}
+
+.network-settings {
+  min-height: auto;
+}
+
+.right-rail .vm-panel {
+  min-height: 0;
 }
 
 .section-title {
@@ -251,6 +268,10 @@ h1 {
   background: var(--amber);
 }
 
+.network-dot {
+  background: #2d8c83;
+}
+
 .server-form {
   margin-top: 18px;
   display: grid;
@@ -276,14 +297,16 @@ h1 {
   gap: 5px;
 }
 
-.server-form label span {
+.server-form label span,
+.network-form label span {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.server-form input {
+.server-form input,
+.network-form input {
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -293,12 +316,14 @@ h1 {
   color: var(--ink);
 }
 
-.server-form input:focus {
+.server-form input:focus,
+.network-form input:focus {
   border-color: var(--blue);
   outline: 2px solid rgba(47, 98, 136, 0.16);
 }
 
 .server-form button,
+.network-form button,
 .secondary-button,
 .ghost-button,
 .danger-button {
@@ -318,6 +343,43 @@ h1 {
   border: 1px solid #213443;
   background: #263743;
   color: #f7fbfc;
+}
+
+.network-form {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.network-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.network-form button {
+  border: 1px solid #213443;
+  background: #263743;
+  color: #f7fbfc;
+}
+
+.subnet-summary {
+  margin-top: 10px;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid #cbd6dd;
+  border-radius: 4px;
+  background: #f1f6f8;
+  color: #2d645e;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.subnet-summary.is-error {
+  border-color: #d9a7a7;
+  background: #fff6f6;
+  color: #9d3d3d;
 }
 
 .secondary-button {
@@ -528,6 +590,23 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.ip-chip {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 3px 0 7px;
+  padding: 3px 6px;
+  border: 1px solid rgba(72, 159, 147, 0.34);
+  border-radius: 3px;
+  background: rgba(32, 71, 67, 0.42);
+  color: #a8d6ce;
+  font-size: 0.68rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
 .compact-specs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -671,6 +750,7 @@ h1 {
 
   .desktop-panel,
   .vm-panel,
+  .right-rail,
   .network-floor {
     min-height: auto;
   }

@@ -8,6 +8,7 @@ const DEFAULT_CONFIG = {
       ram: "64 GB",
       storage: "2 TB NVMe",
       gpus: "1 x NVIDIA A10",
+      staticIp: "192.168.1.10",
       vmIds: ["vm-web"],
       x: 58,
       y: 8,
@@ -20,6 +21,7 @@ const DEFAULT_CONFIG = {
       ram: "128 GB",
       storage: "4 TB SSD",
       gpus: "2 x NVIDIA L40S",
+      staticIp: "192.168.1.11",
       vmIds: [],
       x: 64,
       y: 40,
@@ -32,11 +34,15 @@ const DEFAULT_CONFIG = {
       ram: "96 GB",
       storage: "24 TB HDD",
       gpus: "None",
+      staticIp: "192.168.1.12",
       vmIds: ["vm-db"],
       x: 58,
       y: 72,
     },
   ],
+  network: {
+    serverSubnet: "192.168.1.0/24",
+  },
   infrastructureNodes: [
     { id: "desktop", type: "desktop", name: "Admin Desktop", x: 8, y: 42 },
     { id: "switch", type: "switch", name: "Core Switch", x: 34, y: 43 },
@@ -60,6 +66,7 @@ const CONFIG_API_URL = "/api/config";
 const CONFIG_FILE_URL = "data/config.json";
 
 let servers = [];
+let network = {};
 let infrastructureNodes = [];
 let links = [];
 let vms = [];
@@ -79,6 +86,9 @@ const vmCount = document.querySelector("#vm-count");
 const joinToggle = document.querySelector("#join-toggle");
 const clearSelection = document.querySelector("#clear-selection");
 const joinHelp = document.querySelector("#join-help");
+const networkForm = document.querySelector("#network-form");
+const subnetInput = document.querySelector("#subnet-input");
+const subnetSummary = document.querySelector("#subnet-summary");
 
 let joinMode = false;
 let selectedNodeId = null;
@@ -86,6 +96,18 @@ let selectedServerId = null;
 let dragging = null;
 let suppressedClickNodeId = null;
 const DEFAULT_SWITCH_PORTS = 8;
+const DEFAULT_SERVER_SUBNET = "192.168.1.0/24";
+const MASK_OCTET_PREFIX = {
+  255: 8,
+  254: 7,
+  252: 6,
+  248: 5,
+  240: 4,
+  224: 3,
+  192: 2,
+  128: 1,
+  0: 0,
+};
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -100,12 +122,177 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function parseIp(value) {
+  const parts = String(value).trim().split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const octets = parts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) {
+      return null;
+    }
+
+    const number = Number(part);
+    return number >= 0 && number <= 255 ? number : null;
+  });
+
+  if (octets.some((octet) => octet === null)) {
+    return null;
+  }
+
+  return octets.reduce((total, octet) => total * 256 + octet, 0);
+}
+
+function formatIp(number) {
+  return [24, 16, 8, 0].map((shift) => Math.floor(number / 256 ** (shift / 8)) % 256).join(".");
+}
+
+function prefixToMaskNumber(prefix) {
+  let remaining = prefix;
+  return [0, 0, 0, 0].reduce((total) => {
+    const bits = Math.min(Math.max(remaining, 0), 8);
+    remaining -= bits;
+    const octet = bits === 0 ? 0 : 256 - 2 ** (8 - bits);
+    return total * 256 + octet;
+  }, 0);
+}
+
+function maskToPrefix(mask) {
+  const octets = String(mask).trim().split(".");
+  if (octets.length !== 4) {
+    return null;
+  }
+
+  let prefix = 0;
+  let lockedZero = false;
+
+  for (const octetText of octets) {
+    if (!/^\d{1,3}$/.test(octetText)) {
+      return null;
+    }
+
+    const octet = Number(octetText);
+    if (!(octet in MASK_OCTET_PREFIX) || (lockedZero && octet !== 0)) {
+      return null;
+    }
+
+    const bits = MASK_OCTET_PREFIX[octet];
+    prefix += bits;
+    if (bits < 8) {
+      lockedZero = true;
+    }
+  }
+
+  return prefix;
+}
+
+function parseSubnet(value) {
+  const raw = String(value).trim().replace(/\s+/g, " ");
+  if (!raw) {
+    return null;
+  }
+
+  let baseIpText = "";
+  let maskText = "";
+
+  if (raw.includes("/")) {
+    const parts = raw.split("/");
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    [baseIpText, maskText] = parts.map((part) => part.trim());
+  } else {
+    const parts = raw.split(" ");
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    [baseIpText, maskText] = parts;
+  }
+
+  const ipNumber = parseIp(baseIpText);
+  if (ipNumber === null) {
+    return null;
+  }
+
+  const prefix = maskText.includes(".") ? maskToPrefix(maskText) : Number(maskText);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return null;
+  }
+
+  const blockSize = 2 ** (32 - prefix);
+  const networkNumber = Math.floor(ipNumber / blockSize) * blockSize;
+  const broadcastNumber = networkNumber + blockSize - 1;
+  const firstUsable = prefix >= 31 ? networkNumber : networkNumber + 1;
+  const lastUsable = prefix >= 31 ? broadcastNumber : broadcastNumber - 1;
+
+  return {
+    input: raw,
+    prefix,
+    mask: formatIp(prefixToMaskNumber(prefix)),
+    cidr: `${formatIp(networkNumber)}/${prefix}`,
+    networkAddress: formatIp(networkNumber),
+    firstUsable,
+    lastUsable,
+  };
+}
+
+function getCurrentSubnet() {
+  return parseSubnet(network.serverSubnet || DEFAULT_SERVER_SUBNET);
+}
+
+function getNextAvailableIp(excludeServerId = null) {
+  const subnet = getCurrentSubnet();
+  if (!subnet) {
+    return "";
+  }
+
+  const used = new Set(
+    servers
+      .filter((server) => server.id !== excludeServerId)
+      .map((server) => parseIp(server.staticIp))
+      .filter((ipNumber) => ipNumber !== null),
+  );
+
+  const preferredStart = Math.min(subnet.firstUsable + 9, subnet.lastUsable);
+  for (let ipNumber = preferredStart; ipNumber <= subnet.lastUsable; ipNumber += 1) {
+    if (!used.has(ipNumber)) {
+      return formatIp(ipNumber);
+    }
+  }
+
+  for (let ipNumber = subnet.firstUsable; ipNumber < preferredStart; ipNumber += 1) {
+    if (!used.has(ipNumber)) {
+      return formatIp(ipNumber);
+    }
+  }
+
+  return "";
+}
+
+function normalizeServer(server) {
+  return {
+    ...server,
+    staticIp: typeof server.staticIp === "string" ? server.staticIp : "",
+    vmIds: Array.isArray(server.vmIds) ? server.vmIds : [],
+  };
+}
+
 function normalizeConfig(config) {
   const fallback = clone(DEFAULT_CONFIG);
   const safeConfig = config && typeof config === "object" ? config : fallback;
+  const safeNetwork = safeConfig.network && typeof safeConfig.network === "object" ? safeConfig.network : fallback.network;
 
   return {
-    servers: Array.isArray(safeConfig.servers) ? safeConfig.servers : fallback.servers,
+    servers: (Array.isArray(safeConfig.servers) ? safeConfig.servers : fallback.servers).map(normalizeServer),
+    network: {
+      serverSubnet:
+        typeof safeNetwork.serverSubnet === "string" && safeNetwork.serverSubnet.trim()
+          ? safeNetwork.serverSubnet
+          : fallback.network.serverSubnet,
+    },
     infrastructureNodes: Array.isArray(safeConfig.infrastructureNodes)
       ? safeConfig.infrastructureNodes
       : fallback.infrastructureNodes,
@@ -117,14 +304,22 @@ function normalizeConfig(config) {
 function applyConfig(config) {
   const normalized = normalizeConfig(config);
   servers = clone(normalized.servers);
+  network = clone(normalized.network);
   infrastructureNodes = clone(normalized.infrastructureNodes);
   links = clone(normalized.links);
   vms = clone(normalized.vms);
+
+  servers.forEach((server) => {
+    if (!server.staticIp) {
+      server.staticIp = getNextAvailableIp(server.id);
+    }
+  });
 }
 
 function serializeConfig() {
   return {
     servers,
+    network,
     infrastructureNodes,
     links,
     vms,
@@ -220,6 +415,7 @@ function getServerFormData() {
 
   return {
     name: String(formData.get("name")).trim(),
+    staticIp: String(formData.get("staticIp")).trim(),
     cpu: String(formData.get("cpu")).trim(),
     ram: String(formData.get("ram")).trim(),
     storage: String(formData.get("storage")).trim(),
@@ -229,6 +425,7 @@ function getServerFormData() {
 
 function fillServerForm(server) {
   serverForm.elements.name.value = server.name;
+  serverForm.elements.staticIp.value = server.staticIp || getNextAvailableIp(server.id);
   serverForm.elements.cpu.value = server.cpu;
   serverForm.elements.ram.value = server.ram;
   serverForm.elements.storage.value = server.storage;
@@ -240,6 +437,7 @@ function resetServerForm() {
   selectedNodeId = null;
   joinMode = false;
   serverForm.elements.name.value = getNextServerName();
+  serverForm.elements.staticIp.value = getNextAvailableIp();
   serverForm.elements.cpu.value = "24 vCPU";
   serverForm.elements.ram.value = "96 GB";
   serverForm.elements.storage.value = "3 TB SSD";
@@ -334,6 +532,7 @@ function makeNodeElement(node) {
           <span>Server</span>
           <strong>${escapeHtml(server.name)}</strong>
         </div>
+        <div class="ip-chip">${escapeHtml(server.staticIp || "IP unassigned")}</div>
         <div class="compact-specs">
           <span>${escapeHtml(server.cpu)}</span>
           <span>${escapeHtml(server.ram)}</span>
@@ -539,6 +738,24 @@ function renderCounters() {
   vmCount.textContent = vms.length;
 }
 
+function renderNetworkSettings() {
+  const savedSubnet = network.serverSubnet || DEFAULT_SERVER_SUBNET;
+  if (document.activeElement !== subnetInput) {
+    subnetInput.value = savedSubnet;
+  }
+
+  const subnet = parseSubnet(subnetInput.value || savedSubnet);
+
+  if (!subnet) {
+    subnetSummary.textContent = "Invalid subnet";
+    subnetSummary.classList.add("is-error");
+    return;
+  }
+
+  subnetSummary.textContent = `${subnet.cidr} · mask ${subnet.mask}`;
+  subnetSummary.classList.remove("is-error");
+}
+
 function renderJoinState() {
   joinToggle.classList.toggle("is-active", joinMode);
   clearSelection.disabled = !joinMode && !selectedNodeId;
@@ -562,6 +779,7 @@ function renderServerFormState() {
 
 function render() {
   renderCounters();
+  renderNetworkSettings();
   renderJoinState();
   renderServerFormState();
   renderNodes();
@@ -585,6 +803,7 @@ function createServer(values) {
     id,
     name,
     status: "Online",
+    staticIp: values.staticIp || getNextAvailableIp(),
     cpu: values.cpu,
     ram: values.ram,
     storage: values.storage,
@@ -607,6 +826,7 @@ function updateSelectedServer(values) {
   }
 
   server.name = values.name;
+  server.staticIp = values.staticIp || getNextAvailableIp(server.id);
   server.cpu = values.cpu;
   server.ram = values.ram;
   server.storage = values.storage;
@@ -616,6 +836,35 @@ function updateSelectedServer(values) {
 function saveServer(event) {
   event.preventDefault();
   const values = getServerFormData();
+  const subnet = getCurrentSubnet();
+  const staticIpNumber = values.staticIp ? parseIp(values.staticIp) : null;
+  const duplicateIp = values.staticIp
+    ? servers.some((server) => server.id !== selectedServerId && server.staticIp === values.staticIp)
+    : false;
+
+  if (values.staticIp && staticIpNumber === null) {
+    serverForm.elements.staticIp.setCustomValidity("Use a valid IPv4 address.");
+    serverForm.reportValidity();
+    return;
+  }
+
+  if (
+    values.staticIp &&
+    subnet &&
+    (staticIpNumber < subnet.firstUsable || staticIpNumber > subnet.lastUsable)
+  ) {
+    serverForm.elements.staticIp.setCustomValidity("Use an IP address inside the server subnet.");
+    serverForm.reportValidity();
+    return;
+  }
+
+  if (duplicateIp) {
+    serverForm.elements.staticIp.setCustomValidity("Use an IP address that is not already assigned.");
+    serverForm.reportValidity();
+    return;
+  }
+
+  serverForm.elements.staticIp.setCustomValidity("");
 
   if (selectedServerId) {
     updateSelectedServer(values);
@@ -623,6 +872,24 @@ function saveServer(event) {
     createServer(values);
   }
 
+  render();
+  saveConfig();
+}
+
+function saveNetworkSettings(event) {
+  event.preventDefault();
+  const subnetText = String(new FormData(networkForm).get("serverSubnet")).trim();
+  const subnet = parseSubnet(subnetText);
+
+  if (!subnet) {
+    subnetInput.setCustomValidity("Use CIDR like 192.168.1.0/24 or mask style like 192.168.1.0 255.255.255.0.");
+    networkForm.reportValidity();
+    renderNetworkSettings();
+    return;
+  }
+
+  subnetInput.setCustomValidity("");
+  network.serverSubnet = subnetText;
   render();
   saveConfig();
 }
@@ -645,6 +912,14 @@ function deleteSelectedServer() {
 }
 
 serverForm.addEventListener("submit", saveServer);
+networkForm.addEventListener("submit", saveNetworkSettings);
+subnetInput.addEventListener("input", () => {
+  subnetInput.setCustomValidity("");
+  renderNetworkSettings();
+});
+serverForm.elements.staticIp.addEventListener("input", () => {
+  serverForm.elements.staticIp.setCustomValidity("");
+});
 newServerButton.addEventListener("click", resetServerForm);
 deleteServerButton.addEventListener("click", deleteSelectedServer);
 joinToggle.addEventListener("click", () => {

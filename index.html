@@ -60,6 +60,10 @@
               <input id="server-name" name="name" value="Compute-04" autocomplete="off" required />
             </label>
             <label>
+              <span>Static IP</span>
+              <input id="server-ip" name="staticIp" value="192.168.1.13" autocomplete="off" />
+            </label>
+            <label>
               <span>CPU</span>
               <input id="server-cpu" name="cpu" value="24 vCPU" autocomplete="off" required />
             </label>
@@ -106,12 +110,35 @@
           </div>
         </section>
 
-        <aside class="vm-panel">
-          <div class="section-title">
-            <span class="title-dot vm-dot"></span>
-            <span>Unassigned VMs</span>
-          </div>
-          <div id="vm-pool" class="vm-pool" aria-label="Unassigned virtual machines"></div>
+        <aside class="right-rail">
+          <section class="network-settings" aria-label="Network addressing settings">
+            <div class="section-title">
+              <span class="title-dot network-dot"></span>
+              <span>Network Addressing</span>
+            </div>
+            <form id="network-form" class="network-form">
+              <label>
+                <span>Server Subnet</span>
+                <input
+                  id="subnet-input"
+                  name="serverSubnet"
+                  value="192.168.1.0/24"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+              <button type="submit">Save Subnet</button>
+            </form>
+            <div id="subnet-summary" class="subnet-summary">192.168.1.0/24</div>
+          </section>
+
+          <section class="vm-panel">
+            <div class="section-title">
+              <span class="title-dot vm-dot"></span>
+              <span>Unassigned VMs</span>
+            </div>
+            <div id="vm-pool" class="vm-pool" aria-label="Unassigned virtual machines"></div>
+          </section>
         </aside>
       </section>
     </main>
