@@ -5,6 +5,7 @@ const DEFAULT_CONFIG = {
       name: "Edge-01",
       status: "Online",
       cpu: "16 vCPU",
+      coresPerCpuChip: 16,
       ram: "64 GB",
       storage: "2 TB NVMe",
       gpus: "1 x NVIDIA A10",
@@ -20,6 +21,7 @@ const DEFAULT_CONFIG = {
       name: "Compute-02",
       status: "Online",
       cpu: "32 vCPU",
+      coresPerCpuChip: 16,
       ram: "128 GB",
       storage: "4 TB SSD",
       gpus: "2 x NVIDIA L40S",
@@ -53,6 +55,7 @@ const DEFAULT_CONFIG = {
       name: "Storage-03",
       status: "Online",
       cpu: "12 vCPU",
+      coresPerCpuChip: 12,
       ram: "96 GB",
       storage: "24 TB HDD",
       gpus: "None",
@@ -120,6 +123,7 @@ const serverFormState = document.querySelector("#server-form-state");
 const serverSubmit = document.querySelector("#server-submit");
 const newServerButton = document.querySelector("#new-server");
 const deleteServerButton = document.querySelector("#delete-server");
+const serverCoresPerChipInput = document.querySelector("#server-cores-per-chip");
 const serverGpuSlotsInput = document.querySelector("#server-gpu-slots");
 const serverCount = document.querySelector("#server-count");
 const linkCount = document.querySelector("#link-count");
@@ -474,6 +478,69 @@ function parseGpuSlotCount(value, fallback = 0) {
   return Math.max(0, Math.floor(number));
 }
 
+function parsePositiveInteger(value, fallback = 1) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return fallback;
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.floor(number));
+}
+
+function parseCpuCount(value) {
+  const match = String(value || "").match(/(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function inferCoresPerCpuChip(server) {
+  if (Number.isFinite(Number(server.coresPerCpuChip))) {
+    return parsePositiveInteger(server.coresPerCpuChip);
+  }
+
+  const cpuCount = parseCpuCount(server.cpu);
+  return cpuCount || 1;
+}
+
+function getServerCpuTopology(server) {
+  const totalCpu = parseCpuCount(server?.cpu);
+  const coresPerCpuChip = parsePositiveInteger(server?.coresPerCpuChip, totalCpu || 1);
+  const physicalChips = totalCpu ? Math.max(1, Math.ceil(totalCpu / coresPerCpuChip)) : null;
+
+  return {
+    totalCpu,
+    coresPerCpuChip,
+    physicalChips,
+    numaCpuPerNode: coresPerCpuChip,
+  };
+}
+
+function getVmCpuCount(vm) {
+  return parseCpuCount(vm?.size);
+}
+
+function getVmNumaGuidance(vm, server = getVmHostServer(vm?.id)) {
+  if (!vm || !server) {
+    return null;
+  }
+
+  const vmCpuCount = getVmCpuCount(vm);
+  const topology = getServerCpuTopology(server);
+  if (!vmCpuCount || !topology.numaCpuPerNode) {
+    return null;
+  }
+
+  return {
+    vmCpuCount,
+    numaCpuPerNode: topology.numaCpuPerNode,
+    numaNodesNeeded: Math.max(1, Math.ceil(vmCpuCount / topology.numaCpuPerNode)),
+    crossesNuma: vmCpuCount > topology.numaCpuPerNode,
+  };
+}
+
 function inferGpuSlotCount(server) {
   if (Number.isFinite(Number(server.physicalGpuSlots))) {
     return parseGpuSlotCount(server.physicalGpuSlots);
@@ -579,10 +646,22 @@ function getGpuStatusLabel(status) {
   return labels[status] || "Needs review";
 }
 
+function clearVmGpuPassthrough(vmId) {
+  const vm = getVm(vmId);
+  if (!vm) {
+    return;
+  }
+
+  vm.gpuPassthrough = getEmptyGpuPassthrough();
+  vm.gpuPassthroughWarning = "";
+}
+
 function releaseGpuAssignmentsForVm(vmId) {
   servers.forEach((server) => {
     server.gpuDevices = getServerGpuDevices(server).filter((gpu) => gpu.assignedVmId !== vmId);
   });
+
+  clearVmGpuPassthrough(vmId);
 
   if (selectedServerId) {
     const selectedServer = getServer(selectedServerId);
@@ -793,6 +872,7 @@ function normalizeServer(server) {
     ...safeServer,
     staticIp: typeof safeServer.staticIp === "string" ? safeServer.staticIp : "",
     vmIds: Array.isArray(safeServer.vmIds) ? safeServer.vmIds : [],
+    coresPerCpuChip: inferCoresPerCpuChip(safeServer),
     physicalGpuSlots: inferGpuSlotCount(safeServer),
     gpuDevices: Array.isArray(safeServer.gpuDevices)
       ? safeServer.gpuDevices.map((gpu) => normalizeGpuDevice(gpu, safeServer.id))
@@ -1254,11 +1334,13 @@ function selectGpuDraftDevice(gpuId) {
 
 function getServerFormData() {
   const formData = new FormData(serverForm);
+  const cpu = String(formData.get("cpu")).trim();
 
   return {
     name: String(formData.get("name")).trim(),
     staticIp: String(formData.get("staticIp")).trim(),
-    cpu: String(formData.get("cpu")).trim(),
+    cpu,
+    coresPerCpuChip: parsePositiveInteger(formData.get("coresPerCpuChip"), parseCpuCount(cpu) || 1),
     ram: String(formData.get("ram")).trim(),
     storage: String(formData.get("storage")).trim(),
     gpus: String(formData.get("gpus")).trim(),
@@ -1271,6 +1353,7 @@ function fillServerForm(server) {
   serverForm.elements.name.value = server.name;
   serverForm.elements.staticIp.value = server.staticIp || getNextAvailableIp(server.id);
   serverForm.elements.cpu.value = server.cpu;
+  serverCoresPerChipInput.value = inferCoresPerCpuChip(server);
   serverForm.elements.ram.value = server.ram;
   serverForm.elements.storage.value = server.storage;
   serverForm.elements.gpus.value = server.gpus;
@@ -1289,6 +1372,7 @@ function resetServerForm() {
   serverForm.elements.name.value = getNextServerName();
   serverForm.elements.staticIp.value = getNextAvailableIp();
   serverForm.elements.cpu.value = "24 vCPU";
+  serverCoresPerChipInput.value = 12;
   serverForm.elements.ram.value = "96 GB";
   serverForm.elements.storage.value = "3 TB SSD";
   serverForm.elements.gpus.value = "None";
@@ -1382,6 +1466,35 @@ function makeServerGpuAssignments(server) {
   `;
 }
 
+function makeServerCpuSpec(server) {
+  const topology = getServerCpuTopology(server);
+  const numaOpportunityCount = topology.physicalChips || 1;
+  const numaSummary = `${numaOpportunityCount} NUMA x ${topology.numaCpuPerNode} CPU`;
+
+  return `
+    <span class="cpu-numa-spec" title="1 NUMA = ${escapeHtml(topology.numaCpuPerNode)} CPU; ${escapeHtml(numaOpportunityCount)} assignment opportunit${numaOpportunityCount === 1 ? "y" : "ies"}">
+      <i aria-hidden="true"></i>
+      <b>${escapeHtml(server.cpu)}</b>
+      <small>${escapeHtml(numaSummary)}</small>
+    </span>
+  `;
+}
+
+function makeVmNumaDetails(vm) {
+  const guidance = getVmNumaGuidance(vm);
+  if (!guidance) {
+    return "";
+  }
+
+  return `
+    <div class="vm-numa-detail ${guidance.crossesNuma ? "is-risk" : ""}">
+      <strong>NUMA</strong>
+      <span>${escapeHtml(guidance.vmCpuCount)} CPU / ${escapeHtml(guidance.numaCpuPerNode)} per node</span>
+      <span>${escapeHtml(guidance.numaNodesNeeded)} NUMA node${guidance.numaNodesNeeded === 1 ? "" : "s"}${guidance.crossesNuma ? " - possible crossing" : ""}</span>
+    </div>
+  `;
+}
+
 function makeVmGpuDetails(vm) {
   const assignedGpus = getGpuDevicesForVm(vm.id).filter((gpu) => gpu.assignmentStatus === "assigned");
   if (!assignedGpus.length && !vm.gpuPassthrough?.enabled) {
@@ -1416,6 +1529,7 @@ function makeVmGpuDetails(vm) {
 
 function makeVmCard(vm) {
   const card = document.createElement("div");
+  const numaGuidance = getVmNumaGuidance(vm);
   card.className = "vm-card";
   card.draggable = true;
   card.dataset.vmId = vm.id;
@@ -1428,9 +1542,13 @@ function makeVmCard(vm) {
   if (vm.gpuPassthroughWarning) {
     card.classList.add("has-gpu-warning");
   }
+  if (numaGuidance?.crossesNuma) {
+    card.classList.add("has-numa-risk");
+  }
   card.innerHTML = `
     <strong>${escapeHtml(vm.name)}</strong>
     <span>${escapeHtml(vm.size)}</span>
+    ${makeVmNumaDetails(vm)}
     ${makeVmGpuDetails(vm)}
   `;
   card.addEventListener("dragstart", (event) => {
@@ -1543,7 +1661,7 @@ function makeNodeElement(node) {
         </div>
         ${makeIpChip(server.staticIp)}
         <div class="compact-specs">
-          <span>${escapeHtml(server.cpu)}</span>
+          ${makeServerCpuSpec(server)}
           <span>${escapeHtml(server.ram)}</span>
           <span>${escapeHtml(server.storage)}</span>
           <span>${escapeHtml(server.gpus)}</span>
@@ -1904,6 +2022,7 @@ function createServer(values) {
     status: "Online",
     staticIp: values.staticIp || getNextAvailableIp(),
     cpu: values.cpu,
+    coresPerCpuChip: values.coresPerCpuChip,
     ram: values.ram,
     storage: values.storage,
     gpus: values.gpus,
@@ -1929,6 +2048,7 @@ function updateSelectedServer(values) {
   server.name = values.name;
   server.staticIp = values.staticIp || getNextAvailableIp(server.id);
   server.cpu = values.cpu;
+  server.coresPerCpuChip = values.coresPerCpuChip;
   server.ram = values.ram;
   server.storage = values.storage;
   server.gpus = values.gpus;
@@ -1965,6 +2085,12 @@ function saveServer(event) {
     return;
   }
 
+  if (values.coresPerCpuChip < 1) {
+    serverCoresPerChipInput.setCustomValidity("Use at least 1 core per physical CPU chip.");
+    serverForm.reportValidity();
+    return;
+  }
+
   const assignedGpuCount = values.gpuDevices.filter((gpu) => gpu.assignmentStatus === "assigned").length;
   if (values.physicalGpuSlots < assignedGpuCount) {
     serverGpuSlotsInput.setCustomValidity("GPU slots cannot be lower than the assigned passthrough GPU count.");
@@ -1973,6 +2099,7 @@ function saveServer(event) {
   }
 
   serverForm.elements.staticIp.setCustomValidity("");
+  serverCoresPerChipInput.setCustomValidity("");
   serverGpuSlotsInput.setCustomValidity("");
 
   if (selectedServerId) {
@@ -2063,6 +2190,9 @@ desktopIpInput.addEventListener("input", () => {
 });
 serverForm.elements.staticIp.addEventListener("input", () => {
   serverForm.elements.staticIp.setCustomValidity("");
+});
+serverCoresPerChipInput.addEventListener("input", () => {
+  serverCoresPerChipInput.setCustomValidity("");
 });
 serverGpuSlotsInput.addEventListener("input", () => {
   serverGpuSlotsInput.setCustomValidity("");

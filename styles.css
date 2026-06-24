@@ -964,6 +964,47 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.compact-specs .cpu-numa-spec {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 5px;
+  align-items: center;
+  border-left: 3px solid #4d7ea8;
+}
+
+.cpu-numa-spec i {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(117, 167, 199, 0.7);
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, transparent 42%, rgba(117, 167, 199, 0.48) 42% 58%, transparent 58%),
+    linear-gradient(0deg, transparent 42%, rgba(117, 167, 199, 0.48) 42% 58%, transparent 58%),
+    rgba(27, 58, 78, 0.9);
+  box-shadow: 0 0 0 2px rgba(77, 126, 168, 0.12);
+}
+
+.cpu-numa-spec b,
+.cpu-numa-spec small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cpu-numa-spec b {
+  color: #edf6f8;
+  font-size: 0.68rem;
+  line-height: 1.05;
+}
+
+.cpu-numa-spec small {
+  grid-column: 2;
+  color: #a8d6ce;
+  font-size: 0.56rem;
+  font-weight: 900;
+  line-height: 1.05;
+  text-transform: uppercase;
+}
+
 .gpu-assignment-panel {
   display: grid;
   gap: 6px;
@@ -1171,6 +1212,14 @@ h1 {
   border-left-color: #9f1d1d;
 }
 
+.vm-card.has-numa-risk {
+  border-color: #b22b2b;
+  border-left-color: #b22b2b;
+  background: #fff6f3;
+  box-shadow: 0 0 0 2px rgba(178, 43, 43, 0.12);
+}
+
+.vm-numa-detail,
 .vm-gpu-detail {
   display: grid;
   gap: 1px;
@@ -1179,6 +1228,7 @@ h1 {
   border-top: 1px solid #d7e0e4;
 }
 
+.vm-numa-detail strong,
 .vm-gpu-detail strong {
   color: #2d645e;
   font-size: 0.62rem;
@@ -1186,6 +1236,7 @@ h1 {
   text-transform: uppercase;
 }
 
+.vm-numa-detail span,
 .vm-gpu-detail span {
   color: #43525b;
   font-size: 0.62rem;
@@ -1195,6 +1246,11 @@ h1 {
 
 .vm-gpu-detail.is-warning strong,
 .vm-gpu-detail.is-warning span {
+  color: #9f1d1d;
+}
+
+.vm-numa-detail.is-risk strong,
+.vm-numa-detail.is-risk span {
   color: #9f1d1d;
 }
 

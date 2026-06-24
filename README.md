@@ -52,10 +52,12 @@ erDiagram
     string name
     string status
     string cpu
+    number coresPerCpuChip
     string ram
     string storage
     string gpus
     string staticIp
+    number physicalGpuSlots
     array gpuDevices
     number x
     number y
@@ -130,11 +132,12 @@ sequenceDiagram
 The key user workflows are:
 
 - **Startup**: load `data/config.json`, then draw the saved topology.
-- **Create server**: user fills name, CPU, RAM, storage, and GPUs; app adds the server and saves.
+- **Create server**: user fills name, CPU, cores per physical CPU chip, RAM, storage, and GPUs; app adds the server and saves.
 - **Read server**: user clicks a server; app fills the edit form with that server's details.
 - **Update server**: user edits the form; app updates the selected server and saves.
 - **Delete server**: app removes the server, its links, and any VM placement on that server, then saves.
 - **Use compact server form**: on wide screens, the Server CRUD panel uses a two-column form so the main page needs less vertical scrolling.
+- **Track NUMA sizing**: user enters how many cores are in one physical CPU chip; the app treats that as `1 NUMA = N CPU`, shows the server's NUMA assignment opportunities, and flags hosted VMs red when their CPU count may cross a NUMA boundary.
 - **Track Hyper-V GPU passthrough**: user enters the physical GPU slot count on the server, then drops a VM onto that server and uses the floating GPU assignment window to optionally enter the GPU PCIe / Hyper-V location path for passthrough assignment.
 - **Move device**: user drags a server, desktop, or switch; app saves the new position.
 - **Join devices**: user chooses two devices; app adds a network link and saves.
@@ -201,6 +204,7 @@ Each server shows:
 - Name
 - Static IP
 - CPU
+- Compact CPU/NUMA tile: total CPU plus NUMA assignment opportunities
 - RAM
 - Storage
 - GPU summary
@@ -239,7 +243,7 @@ Validation rules:
 - PCIe bus strings must be unique across the app.
 - Duplicate PCIe paths or a VM assigned from the wrong host server show as conflicts.
 - Missing VM links or stale VM GPU references are shown as warnings instead of disappearing silently.
-- Moving or unloading a VM releases its old passthrough assignment so the physical GPU slot becomes available again.
+- Moving or unloading a VM releases its old passthrough assignment, clears the VM GPU passthrough display, and makes the physical GPU slot available again.
 
 The right-side **Network Addressing** panel stores:
 
@@ -249,11 +253,17 @@ The right-side **Network Addressing** panel stores:
 
 Assigned IP badges on servers and the Admin Desktop turn red if the address is not valid for the current subnet. This check runs after startup too, so existing saved devices from `data/config.json` show the same invalid state as newly edited devices. For beginner readability, validation follows the typed subnet family instead of only the normalized CIDR range; for example, `192.168.11.0/19` expects `192.168.11.x` server addresses.
 
-VM cards can be created, edited, deleted, dragged onto a server, or dragged back to the right-side **Holding Spot** to unload them from a server. The Holding Spot keeps a fixed height and scrolls when there are more than a few unassigned VMs.
+VM cards can be created, edited, deleted, dragged onto a server, or dragged back to the right-side **Holding Spot** to unload them from a server. Hosted VM cards show how many NUMA nodes the VM uses based on the server's cores per physical chip, and turn red when the VM needs more CPU than one NUMA node allows. The Holding Spot keeps a fixed height and scrolls when there are more than a few unassigned VMs.
+
+## CPU And NUMA Tracking
+
+Each server stores `coresPerCpuChip`. For this beginner model, one physical CPU chip is treated as one NUMA node, so `coresPerCpuChip` means `1 NUMA = N CPU cores`.
+
+When a VM is loaded onto a server, the VM card estimates how many NUMA nodes it needs from the VM CPU count and the server's cores-per-chip value. For example, an `8 CPU` VM on a server with `12` cores per physical CPU chip fits in one NUMA node.
 
 You can also:
 
-- Add a server with name, CPU, RAM, storage, GPU summary, and physical GPU slot count
+- Add a server with name, CPU, cores per physical CPU chip, RAM, storage, GPU summary, and physical GPU slot count
 - Click a server to read and edit its details
 - Save changes to update a selected server
 - Delete a selected server and remove its network links
