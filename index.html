@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Center Server Map</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="top-bar">
+        <div>
+          <p class="eyebrow">Data Center View</p>
+          <h1>Drag, Add, and Join Servers</h1>
+        </div>
+        <div class="status-strip" aria-label="Network summary">
+          <span><strong id="server-count">0</strong> servers</span>
+          <span><strong id="link-count">0</strong> links</span>
+          <span><strong id="vm-count">0</strong> VMs</span>
+          <span><strong>1</strong> desktop</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Server network map">
+        <aside class="desktop-panel">
+          <div class="section-title">
+            <span class="title-dot"></span>
+            <span>Server CRUD</span>
+          </div>
+          <div id="server-form-state" class="form-state">Create a new server</div>
+          <form id="server-form" class="server-form">
+            <label>
+              <span>Name</span>
+              <input id="server-name" name="name" value="Compute-04" autocomplete="off" required />
+            </label>
+            <label>
+              <span>CPU</span>
+              <input id="server-cpu" name="cpu" value="24 vCPU" autocomplete="off" required />
+            </label>
+            <label>
+              <span>RAM</span>
+              <input id="server-ram" name="ram" value="96 GB" autocomplete="off" required />
+            </label>
+            <label>
+              <span>Storage</span>
+              <input id="server-storage" name="storage" value="3 TB SSD" autocomplete="off" required />
+            </label>
+            <label>
+              <span>GPUs</span>
+              <input id="server-gpus" name="gpus" value="None" autocomplete="off" required />
+            </label>
+            <div class="form-actions">
+              <button id="server-submit" type="submit">Add Server</button>
+              <button id="new-server" class="secondary-button" type="button">New</button>
+              <button id="delete-server" class="danger-button" type="button" disabled>Delete</button>
+            </div>
+          </form>
+
+          <div class="tip-box">
+            <strong>Build the diagram</strong>
+            <p>Click a server to edit it. Drag devices to move them. Use Join Devices, then select two devices to connect them.</p>
+          </div>
+        </aside>
+
+        <section class="network-floor">
+          <div class="topology-toolbar">
+            <div class="section-title">
+              <span class="title-dot server-dot"></span>
+              <span>Network Topology</span>
+            </div>
+            <div class="toolbar-actions">
+              <button id="join-toggle" class="secondary-button" type="button">Join Devices</button>
+              <button id="clear-selection" class="ghost-button" type="button">Cancel</button>
+            </div>
+          </div>
+          <div id="join-help" class="join-help">Select the first device, then select the second device.</div>
+          <div id="topology-canvas" class="topology-canvas" aria-label="Draggable network topology">
+            <svg id="link-layer" class="link-layer" aria-hidden="true"></svg>
+            <div id="node-layer" class="node-layer"></div>
+          </div>
+        </section>
+
+        <aside class="vm-panel">
+          <div class="section-title">
+            <span class="title-dot vm-dot"></span>
+            <span>Unassigned VMs</span>
+          </div>
+          <div id="vm-pool" class="vm-pool" aria-label="Unassigned virtual machines"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
