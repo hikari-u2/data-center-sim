@@ -63,27 +63,68 @@ function Test-StopRequested {
   return $false
 }
 
+# Reliable Ctrl+C / Ctrl+Break handling.
+#
+# A PowerShell ScriptBlock used as a console handler runs on a thread without a
+# runspace, so it cannot update PowerShell variables the main loop reads. We use
+# a compiled native console-control handler (SetConsoleCtrlHandler) instead: the
+# OS invokes it directly and it sets a volatile static field that the main loop
+# polls. Returning true for Ctrl+C/Ctrl+Break marks the signal handled, so the
+# process keeps running just long enough to shut the listener down cleanly.
+if (-not ('DataCenterSim.ConsoleCtrl' -as [type])) {
+  Add-Type -Namespace DataCenterSim -Name ConsoleCtrl -MemberDefinition @"
+public static volatile bool StopRequested = false;
+public delegate bool HandlerRoutine(uint ctrlType);
+private static HandlerRoutine _handler;
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError=true)]
+private static extern bool SetConsoleCtrlHandler(HandlerRoutine handler, bool add);
+
+public static void Install() {
+  _handler = new HandlerRoutine(OnCtrl);
+  SetConsoleCtrlHandler(_handler, true);
+}
+
+private static bool OnCtrl(uint ctrlType) {
+  StopRequested = true;
+  // 0 = Ctrl+C, 1 = Ctrl+Break: report handled so we can stop gracefully.
+  return ctrlType == 0 || ctrlType == 1;
+}
+"@
+}
+
+try {
+  [DataCenterSim.ConsoleCtrl]::StopRequested = $false
+  [DataCenterSim.ConsoleCtrl]::Install()
+} catch {
+}
+
 try {
   try {
+    $Listener.ExclusiveAddressUse = $false
+    $Listener.Server.SetSocketOption([System.Net.Sockets.SocketOptionLevel]::Socket, [System.Net.Sockets.SocketOptionName]::ReuseAddress, $true)
     $Listener.Start()
   } catch {
     Write-Host ""
     Write-Host "Could not start the local server on port $Port."
     Write-Host "Another app may already be using http://localhost:$Port/"
     Write-Host ""
-    throw
+    if (-not [Console]::IsInputRedirected) {
+      Read-Host "Press Enter to close"
+    }
+    exit 1
   }
   $Url = "http://localhost:$Port/"
   Write-Host ""
   Write-Host "Data Center Server Map is running."
   Write-Host "Open: $Url"
-  Write-Host "Press Q to stop, or close this window."
+  Write-Host "Close this window to stop the server."
   Write-Host ""
   if ($IsWindowsHost) {
     Start-Process $Url
   }
 
-  while (-not (Test-StopRequested)) {
+  while (-not [DataCenterSim.ConsoleCtrl]::StopRequested -and -not (Test-StopRequested)) {
     if (-not $Listener.Pending()) {
       Start-Sleep -Milliseconds 100
       continue
@@ -193,5 +234,6 @@ try {
   Write-Host ""
   Write-Host "Data Center Server Map stopped."
 } finally {
-  $Listener.Stop()
+  try { $Listener.Stop() } catch { }
+  try { $Listener.Server.Close() } catch { }
 }

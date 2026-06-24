@@ -10,5 +10,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0serve-local.ps1"
-if errorlevel 1 pause
+rem Launch the server in its own console window so Ctrl+C stops it cleanly
+rem (avoids the cmd.exe "Terminate batch job (Y/N)?" prompt).
+start "Data Center Sim" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0serve-local.ps1"

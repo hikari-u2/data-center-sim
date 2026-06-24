@@ -100,7 +100,9 @@
         "pcieBusString": "",
         "assignmentMode": ""
       },
-      "gpuPassthroughWarning": ""
+      "gpuPassthroughWarning": "",
+      "cpu": "4 CPU",
+      "ram": "20 GB"
     },
     {
       "id": "vm-test",
@@ -113,12 +115,14 @@
         "pcieBusString": "",
         "assignmentMode": ""
       },
-      "gpuPassthroughWarning": ""
+      "gpuPassthroughWarning": "",
+      "cpu": "2 CPU",
+      "ram": "8 GB"
     },
     {
       "id": "vm-gpu",
       "name": "ai-worker",
-      "size": "8 CPU / 32 GB / GPU",
+      "size": "8 CPU / 32 GB",
       "hostServerId": "",
       "gpuPassthrough": {
         "enabled": false,
@@ -126,12 +130,31 @@
         "pcieBusString": "",
         "assignmentMode": ""
       },
-      "gpuPassthroughWarning": ""
+      "gpuPassthroughWarning": "",
+      "cpu": "8 CPU",
+      "ram": "32 GB"
     },
     {
       "id": "vm-backup",
       "name": "backup-01",
       "size": "2 CPU / 8 GB",
+      "hostServerId": "",
+      "gpuPassthrough": {
+        "enabled": false,
+        "gpuId": "",
+        "pcieBusString": "",
+        "assignmentMode": ""
+      },
+      "gpuPassthroughWarning": "",
+      "cpu": "2 CPU",
+      "ram": "8 GB"
+    },
+    {
+      "id": "vm-05",
+      "name": "vm-05",
+      "cpu": "6 CPU",
+      "ram": "4 GB",
+      "size": "6 CPU / 4 GB",
       "hostServerId": "",
       "gpuPassthrough": {
         "enabled": false,

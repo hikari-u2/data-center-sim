@@ -189,7 +189,7 @@ It starts a local server and opens the app in the browser at:
 http://localhost:8080/
 ```
 
-Keep the black terminal window open while using the app. Press `Q` in that window to stop it, or close the window.
+Keep the black terminal window open while using the app. Press `Ctrl+C` (or `Q`) in that window to stop it, or close the window.
 
 Server, VM, network link, and layout changes are saved to:
 
