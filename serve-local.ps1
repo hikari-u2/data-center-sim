@@ -4,9 +4,9 @@ $Root = [System.IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyComman
 $RootPrefix = $Root.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 $ConfigPath = Join-Path (Join-Path $Root "data") "config.json"
 $Port = 8080
-$IsWindowsHost = $PSVersionTable.PSEdition -eq "Desktop" -or $PSVersionTable.Platform -eq "Win32NT"
+$IsWindowsHost = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 $BindAddress = if ($IsWindowsHost) { [System.Net.IPAddress]::Loopback } else { [System.Net.IPAddress]::Any }
-$Listener = [System.Net.Sockets.TcpListener]::new($BindAddress, $Port)
+$Listener = New-Object System.Net.Sockets.TcpListener $BindAddress, $Port
 
 function Get-ContentType {
   param([string] $Path)
@@ -92,7 +92,7 @@ try {
     $Client = $Listener.AcceptTcpClient()
     try {
       $Stream = $Client.GetStream()
-      $Reader = [System.IO.StreamReader]::new($Stream, [System.Text.Encoding]::UTF8, $false, 1024, $true)
+      $Reader = New-Object System.IO.StreamReader $Stream, ([System.Text.Encoding]::UTF8), $false, 1024, $true
       $RequestLine = $Reader.ReadLine()
 
       if ([string]::IsNullOrWhiteSpace($RequestLine)) {
@@ -111,9 +111,11 @@ try {
           break
         }
 
-        $HeaderParts = $HeaderLine.Split(":", 2)
-        if ($HeaderParts.Length -eq 2) {
-          $Headers[$HeaderParts[0].Trim().ToLowerInvariant()] = $HeaderParts[1].Trim()
+        $SeparatorIndex = $HeaderLine.IndexOf(":")
+        if ($SeparatorIndex -gt 0) {
+          $HeaderName = $HeaderLine.Substring(0, $SeparatorIndex).Trim().ToLowerInvariant()
+          $HeaderValue = $HeaderLine.Substring($SeparatorIndex + 1).Trim()
+          $Headers[$HeaderName] = $HeaderValue
         }
       }
 

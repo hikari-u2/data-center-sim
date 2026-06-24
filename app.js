@@ -85,6 +85,7 @@ let selectedNodeId = null;
 let selectedServerId = null;
 let dragging = null;
 let suppressedClickNodeId = null;
+const DEFAULT_SWITCH_PORTS = 8;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -172,6 +173,20 @@ function getNode(id) {
 
 function getServer(id) {
   return servers.find((server) => server.id === id);
+}
+
+function getConnectedLinkCount(nodeId) {
+  return links.filter((link) => link.from === nodeId || link.to === nodeId).length;
+}
+
+function makeSwitchPorts(nodeId) {
+  const activePorts = getConnectedLinkCount(nodeId);
+  const totalPorts = Math.max(DEFAULT_SWITCH_PORTS, activePorts);
+
+  return Array.from({ length: totalPorts }, (_, index) => {
+    const className = index < activePorts ? ' class="is-active"' : "";
+    return `<span${className}></span>`;
+  }).join("");
 }
 
 function getAssignedVmIds() {
@@ -340,8 +355,7 @@ function makeNodeElement(node) {
   } else if (node.type === "switch") {
     element.innerHTML = `
       <div class="switch-face" aria-hidden="true">
-        <span></span><span></span><span></span><span></span>
-        <span></span><span></span><span></span><span></span>
+        ${makeSwitchPorts(node.id)}
       </div>
       <div class="node-title">
         <span>Network</span>

@@ -9,8 +9,8 @@
       "storage": "4 TB SSD",
       "gpus": "2 x NVIDIA L40S",
       "vmIds": [],
-      "x": 61.5524754425269,
-      "y": 7.094726562500001
+      "x": 63.6436315420014,
+      "y": 4.1015625
     },
     {
       "id": "storage-03",
@@ -23,8 +23,20 @@
       "vmIds": [
         "vm-db"
       ],
-      "x": 62.83020261454,
-      "y": 61.86035156250001
+      "x": 57.80555338897122,
+      "y": 66.6650390625
+    },
+    {
+      "id": "compute-03",
+      "name": "Compute-03",
+      "status": "Online",
+      "cpu": "24 vCPU",
+      "ram": "96 GB",
+      "storage": "3 TB SSD",
+      "gpus": "None",
+      "vmIds": [],
+      "x": 61.84969971141096,
+      "y": 38.349609375
     }
   ],
   "infrastructureNodes": [
@@ -55,6 +67,10 @@
     {
       "from": "switch",
       "to": "storage-03"
+    },
+    {
+      "from": "switch",
+      "to": "compute-03"
     }
   ],
   "vms": [

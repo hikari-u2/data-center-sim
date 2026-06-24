@@ -569,9 +569,7 @@ h1 {
   background: #5f6d76;
 }
 
-.switch-face span:nth-child(1),
-.switch-face span:nth-child(2),
-.switch-face span:nth-child(5) {
+.switch-face span.is-active {
   background: #4fa475;
 }
 
