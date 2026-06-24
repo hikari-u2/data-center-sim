@@ -119,8 +119,9 @@ The key user workflows are:
 - **Load VM**: user drags a VM card onto a server; app assigns that VM to the server and saves.
 - **Unload VM**: user drags a VM card from a server back to the right-side Holding Spot; app removes it from that server and saves it as unassigned. The Holding Spot scrolls after about three visible VM cards so the panel does not keep growing.
 - **Create, edit, and delete VMs**: user uses the right-side VM CRUD form to manage VM name and size; deleting a VM also removes it from any server.
-- **Set subnet**: user edits the right-side Network Addressing panel using CIDR style, such as `192.168.1.0/24`, or mask style, such as `192.168.1.0 255.255.255.0`.
+- **Set subnet**: user edits the right-side Network Addressing panel using CIDR style, such as `192.168.1.0/24`, or mask style, such as `192.168.1.0 255.255.255.0`. The panel also shows the expected server IP family, such as `192.168.11.x`.
 - **Set Admin Desktop IP**: user edits the Admin Desktop IP in the same Network Addressing panel; the desktop card shows that static address in a high-contrast badge and the value is saved to `data/config.json`.
+- **Review invalid IPs**: assigned server and Admin Desktop IP badges turn red when the value is malformed or outside the current server subnet, including records loaded from `data/config.json` on startup. The app treats the typed subnet as the expected server address family, so `192.168.11.0/19` flags `192.168.1.12` as outside that server subnet.
 
 ## Branding And AI Usage
 
@@ -188,6 +189,8 @@ The right-side **Network Addressing** panel stores:
 - Server subnet, accepted as CIDR style like `192.168.1.0/24`
 - Server subnet, accepted as mask style like `192.168.1.0 255.255.255.0`
 - Admin Desktop static IP
+
+Assigned IP badges on servers and the Admin Desktop turn red if the address is not valid for the current subnet. This check runs after startup too, so existing saved devices from `data/config.json` show the same invalid state as newly edited devices. For beginner readability, validation follows the typed subnet family instead of only the normalized CIDR range; for example, `192.168.11.0/19` expects `192.168.11.x` server addresses.
 
 VM cards can be created, edited, deleted, dragged onto a server, or dragged back to the right-side **Holding Spot** to unload them from a server. The Holding Spot keeps a fixed height and scrolls when there are more than a few unassigned VMs.
 

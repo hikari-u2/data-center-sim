@@ -130,6 +130,15 @@ function escapeHtml(value) {
 }
 
 function parseIp(value) {
+  const octets = parseIpOctets(value);
+  if (!octets) {
+    return null;
+  }
+
+  return octets.reduce((total, octet) => total * 256 + octet, 0);
+}
+
+function parseIpOctets(value) {
   const parts = String(value).trim().split(".");
   if (parts.length !== 4) {
     return null;
@@ -148,11 +157,15 @@ function parseIp(value) {
     return null;
   }
 
-  return octets.reduce((total, octet) => total * 256 + octet, 0);
+  return octets;
+}
+
+function ipNumberToOctets(number) {
+  return [24, 16, 8, 0].map((shift) => Math.floor(number / 256 ** (shift / 8)) % 256);
 }
 
 function formatIp(number) {
-  return [24, 16, 8, 0].map((shift) => Math.floor(number / 256 ** (shift / 8)) % 256).join(".");
+  return ipNumberToOctets(number).join(".");
 }
 
 function prefixToMaskNumber(prefix) {
@@ -219,16 +232,18 @@ function parseSubnet(value) {
     [baseIpText, maskText] = parts;
   }
 
-  const ipNumber = parseIp(baseIpText);
-  if (ipNumber === null) {
+  const baseOctets = parseIpOctets(baseIpText);
+  if (!baseOctets) {
     return null;
   }
 
+  const ipNumber = baseOctets.reduce((total, octet) => total * 256 + octet, 0);
   const prefix = maskText.includes(".") ? maskToPrefix(maskText) : Number(maskText);
   if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
     return null;
   }
 
+  const typedMatchOctets = getTypedSubnetMatchOctets(baseOctets, prefix);
   const blockSize = 2 ** (32 - prefix);
   const networkNumber = Math.floor(ipNumber / blockSize) * blockSize;
   const broadcastNumber = networkNumber + blockSize - 1;
@@ -238,6 +253,9 @@ function parseSubnet(value) {
   return {
     input: raw,
     prefix,
+    baseIp: baseIpText,
+    baseOctets,
+    typedMatchOctets,
     mask: formatIp(prefixToMaskNumber(prefix)),
     cidr: `${formatIp(networkNumber)}/${prefix}`,
     networkAddress: formatIp(networkNumber),
@@ -246,8 +264,92 @@ function parseSubnet(value) {
   };
 }
 
+function getTypedSubnetMatchOctets(baseOctets, prefix) {
+  if (prefix >= 32) {
+    return 4;
+  }
+
+  const prefixOctets = Math.min(Math.floor(prefix / 8), 3);
+  const lastTypedNetworkOctet = baseOctets.reduce((lastIndex, octet, index) => {
+    return octet !== 0 && index < 3 ? index : lastIndex;
+  }, -1);
+
+  return Math.max(prefixOctets, lastTypedNetworkOctet + 1);
+}
+
+function matchesTypedSubnet(ipNumber, subnet) {
+  if (!subnet || !subnet.typedMatchOctets) {
+    return true;
+  }
+
+  const ipOctets = ipNumberToOctets(ipNumber);
+  for (let index = 0; index < subnet.typedMatchOctets; index += 1) {
+    if (ipOctets[index] !== subnet.baseOctets[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isIpInSubnet(ipNumber, subnet) {
+  return (
+    subnet &&
+    ipNumber >= subnet.firstUsable &&
+    ipNumber <= subnet.lastUsable &&
+    matchesTypedSubnet(ipNumber, subnet)
+  );
+}
+
+function formatTypedSubnetHint(subnet) {
+  if (!subnet || subnet.typedMatchOctets === 0) {
+    return "Any IPv4";
+  }
+
+  if (subnet.typedMatchOctets === 4) {
+    return subnet.baseIp;
+  }
+
+  return [0, 1, 2, 3]
+    .map((index) => (index < subnet.typedMatchOctets ? subnet.baseOctets[index] : "x"))
+    .join(".");
+}
+
 function getCurrentSubnet() {
   return parseSubnet(network.serverSubnet || DEFAULT_SERVER_SUBNET);
+}
+
+function getIpValidationMessage(ipAddress, subnet = getCurrentSubnet()) {
+  const value = String(ipAddress || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  const ipNumber = parseIp(value);
+  if (ipNumber === null) {
+    return "Invalid IPv4 address";
+  }
+
+  if (!subnet) {
+    return "";
+  }
+
+  if (!isIpInSubnet(ipNumber, subnet)) {
+    return `Outside server subnet ${subnet.input}`;
+  }
+
+  return "";
+}
+
+function makeIpChip(ipAddress, extraClass = "") {
+  const value = String(ipAddress || "").trim();
+  const validationMessage = getIpValidationMessage(value);
+  const classes = ["ip-chip", extraClass, validationMessage ? "is-invalid-ip" : ""]
+    .filter(Boolean)
+    .join(" ");
+  const title = validationMessage ? ` title="${escapeHtml(validationMessage)}"` : "";
+
+  return `<div class="${classes}"${title}>${escapeHtml(value || "IP unassigned")}</div>`;
 }
 
 function getNextAvailableIp(excludeServerId = null) {
@@ -269,15 +371,27 @@ function getNextAvailableIp(excludeServerId = null) {
     .filter((ipNumber) => ipNumber !== null)
     .forEach((ipNumber) => used.add(ipNumber));
 
-  const preferredStart = Math.min(subnet.firstUsable + 9, subnet.lastUsable);
+  const typedStartOctets = [0, 0, 0, 0];
+  for (let index = 0; index < subnet.typedMatchOctets; index += 1) {
+    typedStartOctets[index] = subnet.baseOctets[index];
+  }
+
+  const typedStart = typedStartOctets.reduce((total, octet) => total * 256 + octet, 0);
+  const firstTypedCandidate = Math.max(subnet.firstUsable, typedStart);
+  const firstTypedCandidateOctets = ipNumberToOctets(firstTypedCandidate);
+  const firstCandidate =
+    subnet.prefix < 31 && firstTypedCandidateOctets[3] === 0
+      ? firstTypedCandidate + 1
+      : firstTypedCandidate;
+  const preferredStart = Math.min(firstCandidate + 9, subnet.lastUsable);
   for (let ipNumber = preferredStart; ipNumber <= subnet.lastUsable; ipNumber += 1) {
-    if (!used.has(ipNumber)) {
+    if (!used.has(ipNumber) && isIpInSubnet(ipNumber, subnet)) {
       return formatIp(ipNumber);
     }
   }
 
-  for (let ipNumber = subnet.firstUsable; ipNumber < preferredStart; ipNumber += 1) {
-    if (!used.has(ipNumber)) {
+  for (let ipNumber = firstCandidate; ipNumber < preferredStart; ipNumber += 1) {
+    if (!used.has(ipNumber) && isIpInSubnet(ipNumber, subnet)) {
       return formatIp(ipNumber);
     }
   }
@@ -601,6 +715,17 @@ function makeNodeElement(node) {
   element.style.left = `${node.x}%`;
   element.style.top = `${node.y}%`;
 
+  const server = node.type === "server" ? getServer(node.id) : null;
+  const ipValidationMessage = server
+    ? getIpValidationMessage(server.staticIp)
+    : node.type === "desktop"
+      ? getIpValidationMessage(node.staticIp)
+      : "";
+
+  if (ipValidationMessage) {
+    element.classList.add("has-invalid-ip");
+  }
+
   if (node.id === selectedNodeId) {
     element.classList.add("is-selected");
   }
@@ -610,7 +735,6 @@ function makeNodeElement(node) {
   }
 
   if (node.type === "server") {
-    const server = getServer(node.id);
     element.innerHTML = `
       <div class="mini-rack" aria-hidden="true">
         <span></span><span></span><span></span><span></span>
@@ -620,7 +744,7 @@ function makeNodeElement(node) {
           <span>Server</span>
           <strong>${escapeHtml(server.name)}</strong>
         </div>
-        <div class="ip-chip">${escapeHtml(server.staticIp || "IP unassigned")}</div>
+        ${makeIpChip(server.staticIp)}
         <div class="compact-specs">
           <span>${escapeHtml(server.cpu)}</span>
           <span>${escapeHtml(server.ram)}</span>
@@ -659,7 +783,7 @@ function makeNodeElement(node) {
         <span>Desktop</span>
         <strong>${escapeHtml(node.name)}</strong>
       </div>
-      <div class="ip-chip desktop-ip-chip">${escapeHtml(node.staticIp || "IP unassigned")}</div>
+      ${makeIpChip(node.staticIp, "desktop-ip-chip")}
     `;
   }
 
@@ -849,6 +973,7 @@ function renderNetworkSettings() {
   subnetSummary.innerHTML = `
     <span><strong>CIDR</strong>${escapeHtml(subnet.cidr)}</span>
     <span><strong>Mask</strong>${escapeHtml(subnet.mask)}</span>
+    <span><strong>IPs</strong>${escapeHtml(formatTypedSubnetHint(subnet))}</span>
   `;
   subnetSummary.classList.remove("is-error");
 }
@@ -1009,8 +1134,8 @@ function updateSelectedServer(values) {
 function saveServer(event) {
   event.preventDefault();
   const values = getServerFormData();
-  const subnet = getCurrentSubnet();
   const staticIpNumber = values.staticIp ? parseIp(values.staticIp) : null;
+  const ipValidationMessage = getIpValidationMessage(values.staticIp);
   const desktop = getInfrastructureNode("desktop");
   const duplicateIp = values.staticIp
     ? servers.some((server) => server.id !== selectedServerId && server.staticIp === values.staticIp) ||
@@ -1023,12 +1148,8 @@ function saveServer(event) {
     return;
   }
 
-  if (
-    values.staticIp &&
-    subnet &&
-    (staticIpNumber < subnet.firstUsable || staticIpNumber > subnet.lastUsable)
-  ) {
-    serverForm.elements.staticIp.setCustomValidity("Use an IP address inside the server subnet.");
+  if (values.staticIp && ipValidationMessage) {
+    serverForm.elements.staticIp.setCustomValidity(ipValidationMessage);
     serverForm.reportValidity();
     return;
   }
@@ -1058,6 +1179,7 @@ function saveNetworkSettings(event) {
   const desktopIp = String(formData.get("desktopIp")).trim();
   const subnet = parseSubnet(subnetText);
   const desktopIpNumber = desktopIp ? parseIp(desktopIp) : null;
+  const desktopIpValidationMessage = desktopIp && subnet ? getIpValidationMessage(desktopIp, subnet) : "";
   const duplicateDesktopIp = desktopIp
     ? servers.some((server) => server.staticIp === desktopIp)
     : false;
@@ -1075,11 +1197,8 @@ function saveNetworkSettings(event) {
     return;
   }
 
-  if (
-    desktopIp &&
-    (desktopIpNumber < subnet.firstUsable || desktopIpNumber > subnet.lastUsable)
-  ) {
-    desktopIpInput.setCustomValidity("Use an IP address inside the subnet.");
+  if (desktopIp && desktopIpValidationMessage) {
+    desktopIpInput.setCustomValidity(desktopIpValidationMessage);
     networkForm.reportValidity();
     return;
   }
