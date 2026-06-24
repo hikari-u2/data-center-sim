@@ -2,7 +2,27 @@
 
 This is a simple beginner-friendly web app for visualizing and editing a small server network.
 
-Open `index.html` in a browser, or run a local static server from this folder:
+## Run On Windows
+
+For non-technical users, double-click:
+
+```text
+Start Data Center Sim.bat
+```
+
+It starts a local server and opens the app in the browser at:
+
+```text
+http://localhost:8080/
+```
+
+Keep the black terminal window open while using the app. Press `Ctrl+C` in that window to stop it.
+
+## Other Ways To Run
+
+You can also open `index.html` directly in a browser.
+
+If Python is installed, you can run a local static server from this folder:
 
 ```bash
 python3 -m http.server 5173
