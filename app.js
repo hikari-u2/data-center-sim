@@ -851,9 +851,27 @@ function getIpValidationMessage(ipAddress, subnet = getCurrentSubnet()) {
   return "";
 }
 
-function makeIpChip(ipAddress, extraClass = "") {
+function getAnySubnetValidationMessage(ipAddress) {
   const value = String(ipAddress || "").trim();
-  const validationMessage = getIpValidationMessage(value);
+  if (!value) {
+    return "";
+  }
+  const ipNumber = parseIp(value);
+  if (ipNumber === null) {
+    return "Invalid IPv4 address";
+  }
+  const subnets = getSubnetList();
+  if (!subnets.length) {
+    return "";
+  }
+  return subnets.some((s) => isIpInSubnet(ipNumber, s.parsed)) ? "" : "Not in any defined subnet";
+}
+
+function makeIpChip(ipAddress, extraClass = "", anySubnet = false) {
+  const value = String(ipAddress || "").trim();
+  const validationMessage = anySubnet
+    ? getAnySubnetValidationMessage(value)
+    : getIpValidationMessage(value);
   const classes = ["ip-chip", extraClass, validationMessage ? "is-invalid-ip" : ""]
     .filter(Boolean)
     .join(" ");
@@ -2739,11 +2757,10 @@ function makeNodeElement(node) {
         <span class="desktop-base"></span>
       </div>
       <div class="node-title">
-        <span>Desktop</span>
         <strong>${escapeHtml(node.name)}</strong>
       </div>
       ${makeIpChip(node.staticIp, "desktop-ip-chip")}
-      ${(node.extraIps || []).map((ip) => makeIpChip(ip, "desktop-ip-chip")).join("")}
+      ${(node.extraIps || []).map((ip) => makeIpChip(ip, "desktop-ip-chip", true)).join("")}
     `;
   }
 

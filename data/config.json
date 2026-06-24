@@ -10,27 +10,51 @@
       "gpus": "2 x NVIDIA L40S",
       "staticIp": "192.168.11.110",
       "vmIds": [],
-      "x": 5.3642461586459715,
-      "y": 31.81743421052631,
+      "x": 1.8168104687463007,
+      "y": 16.987125618444107,
       "physicalGpuSlots": 2,
       "gpuDevices": [],
-      "coresPerCpuChip": 16
-    },
-    {
-      "id": "storage-03",
-      "name": "Storage-03",
-      "status": "Online",
-      "cpu": "12 vCPU",
-      "ram": "96 GB",
-      "storage": "24 TB HDD",
-      "gpus": "None",
-      "staticIp": "192.168.1.11",
-      "vmIds": [],
-      "x": 69.51680836128227,
-      "y": 25.39954874494688,
-      "physicalGpuSlots": 0,
-      "gpuDevices": [],
-      "coresPerCpuChip": 12
+      "coresPerCpuChip": 16,
+      "nics": [
+        {
+          "id": "nic-f6f1a38f-07f4-4f3c-a790-c2721bb8c34e",
+          "hostServerId": "compute-02",
+          "vmId": "",
+          "name": "Management",
+          "adapterType": "management-os",
+          "macAddress": "",
+          "connectedVirtualSwitchId": "",
+          "vlanId": null,
+          "ipAddresses": [
+            {
+              "id": "ip-compute-02-primary",
+              "address": "192.168.11.110",
+              "version": "IPv4",
+              "cidrPrefix": 19,
+              "subnetMask": "255.255.224.0",
+              "gateway": "",
+              "dnsServers": [],
+              "assignmentType": "static",
+              "role": "primary",
+              "subnetId": "subnet-primary",
+              "notes": ""
+            },
+            {
+              "id": "ip-c4a32367-54c4-4d4c-90d4-92b2474029dd",
+              "address": "132.16.129.18",
+              "version": "IPv4",
+              "cidrPrefix": null,
+              "subnetMask": "",
+              "gateway": "",
+              "dnsServers": [],
+              "assignmentType": "static",
+              "role": "",
+              "subnetId": "",
+              "notes": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "compute-03",
@@ -42,15 +66,54 @@
       "gpus": "None",
       "staticIp": "192.168.11.12",
       "vmIds": [],
-      "x": 37.29351158038147,
-      "y": 33.08467741935484,
+      "x": 40.83080187879265,
+      "y": 20.637574774308366,
       "physicalGpuSlots": 0,
       "gpuDevices": [],
-      "coresPerCpuChip": 24
+      "coresPerCpuChip": 24,
+      "nics": [
+        {
+          "id": "nic-1b850ffe-42c3-4c49-a1dd-d2e3ac0c71d5",
+          "hostServerId": "compute-03",
+          "vmId": "",
+          "name": "Management",
+          "adapterType": "management-os",
+          "macAddress": "",
+          "connectedVirtualSwitchId": "",
+          "vlanId": null,
+          "ipAddresses": [
+            {
+              "id": "ip-compute-03-primary",
+              "address": "192.168.11.12",
+              "version": "IPv4",
+              "cidrPrefix": 19,
+              "subnetMask": "255.255.224.0",
+              "gateway": "",
+              "dnsServers": [],
+              "assignmentType": "static",
+              "role": "primary",
+              "subnetId": "subnet-primary",
+              "notes": ""
+            }
+          ]
+        }
+      ]
     }
   ],
   "network": {
-    "serverSubnet": "192.168.11.0/19"
+    "serverSubnet": "192.168.11.0/19",
+    "subnets": [
+      {
+        "id": "subnet-primary",
+        "label": "Server Subnet",
+        "cidr": "192.168.11.0/19"
+      },
+      {
+        "id": "subnet2",
+        "label": "Subnet2",
+        "cidr": "132.16.129.0/24"
+      }
+    ]
   },
   "infrastructureNodes": [
     {
@@ -59,15 +122,19 @@
       "name": "Admin Desktop",
       "x": 1.612588721628578,
       "y": 1,
-      "staticIp": "192.168.11.10"
+      "staticIp": "192.168.11.10",
+      "extraIps": [
+        "132.16.129.12"
+      ]
     },
     {
       "id": "switch",
       "type": "switch",
       "name": "Core Switch",
-      "x": 37.64721940566258,
-      "y": 4.547804832189527,
-      "staticIp": ""
+      "x": 39.696810101530374,
+      "y": 1.775664415631078,
+      "staticIp": "",
+      "extraIps": []
     }
   ],
   "links": [
@@ -78,10 +145,6 @@
     {
       "from": "switch",
       "to": "compute-02"
-    },
-    {
-      "from": "switch",
-      "to": "storage-03"
     },
     {
       "from": "switch",
@@ -102,7 +165,49 @@
       },
       "gpuPassthroughWarning": "",
       "cpu": "4 CPU",
-      "ram": "20 GB"
+      "ram": "20 GB",
+      "nics": [
+        {
+          "id": "nic-vm-db-01",
+          "hostServerId": "",
+          "vmId": "vm-db",
+          "name": "Network Adapter",
+          "adapterType": "vm",
+          "macAddress": "00:15:5D:01:02:03",
+          "connectedVirtualSwitchId": "vswitch-prod",
+          "vlanId": 10,
+          "ipAddresses": [
+            {
+              "id": "ip-vm-db-01-a",
+              "address": "192.168.10.21",
+              "version": "IPv4",
+              "cidrPrefix": 24,
+              "subnetMask": "255.255.255.0",
+              "gateway": "192.168.10.1",
+              "dnsServers": [
+                "192.168.10.10"
+              ],
+              "assignmentType": "static",
+              "role": "primary",
+              "subnetId": "subnet-primary",
+              "notes": ""
+            },
+            {
+              "id": "ip-vm-db-01-b",
+              "address": "192.168.10.22",
+              "version": "IPv4",
+              "cidrPrefix": 24,
+              "subnetMask": "255.255.255.0",
+              "gateway": "",
+              "dnsServers": [],
+              "assignmentType": "static",
+              "role": "secondary",
+              "subnetId": "subnet-primary",
+              "notes": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "vm-test",
@@ -117,7 +222,8 @@
       },
       "gpuPassthroughWarning": "",
       "cpu": "2 CPU",
-      "ram": "8 GB"
+      "ram": "8 GB",
+      "nics": []
     },
     {
       "id": "vm-gpu",
@@ -132,7 +238,8 @@
       },
       "gpuPassthroughWarning": "",
       "cpu": "8 CPU",
-      "ram": "32 GB"
+      "ram": "32 GB",
+      "nics": []
     },
     {
       "id": "vm-backup",
@@ -147,7 +254,8 @@
       },
       "gpuPassthroughWarning": "",
       "cpu": "2 CPU",
-      "ram": "8 GB"
+      "ram": "8 GB",
+      "nics": []
     },
     {
       "id": "vm-05",
@@ -162,7 +270,8 @@
         "pcieBusString": "",
         "assignmentMode": ""
       },
-      "gpuPassthroughWarning": ""
+      "gpuPassthroughWarning": "",
+      "nics": []
     }
   ]
 }
