@@ -44,6 +44,25 @@ function Send-Response {
   }
 }
 
+function Test-StopRequested {
+  try {
+    if ([Console]::IsInputRedirected) {
+      return $false
+    }
+
+    while ([Console]::KeyAvailable) {
+      $Key = [Console]::ReadKey($true)
+      if ($Key.Key -eq [ConsoleKey]::Q -or $Key.Key -eq [ConsoleKey]::Escape) {
+        return $true
+      }
+    }
+  } catch {
+    return $false
+  }
+
+  return $false
+}
+
 try {
   try {
     $Listener.Start()
@@ -58,13 +77,18 @@ try {
   Write-Host ""
   Write-Host "Data Center Server Map is running."
   Write-Host "Open: $Url"
-  Write-Host "Press Ctrl+C to stop."
+  Write-Host "Press Q to stop, or close this window."
   Write-Host ""
   if ($IsWindowsHost) {
     Start-Process $Url
   }
 
-  while ($true) {
+  while (-not (Test-StopRequested)) {
+    if (-not $Listener.Pending()) {
+      Start-Sleep -Milliseconds 100
+      continue
+    }
+
     $Client = $Listener.AcceptTcpClient()
     try {
       $Stream = $Client.GetStream()
@@ -163,6 +187,9 @@ try {
       $Client.Close()
     }
   }
+
+  Write-Host ""
+  Write-Host "Data Center Server Map stopped."
 } finally {
   $Listener.Stop()
 }
