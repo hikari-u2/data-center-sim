@@ -137,7 +137,7 @@ The key user workflows are:
 - **Update server**: user edits the form; app updates the selected server and saves.
 - **Delete server**: app removes the server, its links, and any VM placement on that server, then saves.
 - **Use compact server form**: on wide screens, the Server CRUD panel uses a two-column form so the main page needs less vertical scrolling.
-- **Track NUMA sizing**: user enters how many cores are in one physical CPU chip; the app treats that as `1 NUMA = N CPU`, shows the server's NUMA assignment opportunities, and flags hosted VMs red when their CPU count may cross a NUMA boundary.
+- **Track NUMA sizing**: user enters how many cores are in one physical CPU chip; the server status strip shows CPU, NUMA opportunities, and GPU slot usage, and hosted VMs turn red when their CPU count may cross a NUMA boundary.
 - **Track Hyper-V GPU passthrough**: user enters the physical GPU slot count on the server, then drops a VM onto that server and uses the floating GPU assignment window to optionally enter the GPU PCIe / Hyper-V location path for passthrough assignment.
 - **Move device**: user drags a server, desktop, or switch; app saves the new position.
 - **Join devices**: user chooses two devices; app adds a network link and saves.
@@ -204,7 +204,7 @@ Each server shows:
 - Name
 - Static IP
 - CPU
-- Compact CPU/NUMA tile: total CPU plus NUMA assignment opportunities
+- Status strip: CPU count, NUMA assignment opportunities, and GPU passthrough slot usage
 - RAM
 - Storage
 - GPU summary

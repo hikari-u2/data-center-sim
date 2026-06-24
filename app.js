@@ -1428,55 +1428,73 @@ function selectServerForEdit(serverId) {
 
 function makeServerGpuAssignments(server) {
   const gpuDevices = Array.isArray(server.gpuDevices) ? server.gpuDevices : [];
-  const totalSlots = parseGpuSlotCount(server.physicalGpuSlots);
-  const assignedCount = getAssignedGpuCount(server);
-  const availableCount = getAvailableGpuCount(server);
+  const assignedDevices = gpuDevices.filter((gpu) => gpu.assignedVmId || gpu.assignmentStatus);
 
-  if (!totalSlots && !gpuDevices.length) {
+  if (!assignedDevices.length) {
     return "";
   }
 
   return `
     <div class="gpu-assignment-panel">
       <strong>GPU Passthrough</strong>
-      <div class="server-gpu-accounting">
-        <span>${assignedCount}/${totalSlots} assigned</span>
-        <span>${availableCount} left</span>
-      </div>
       ${
-        gpuDevices.length
-          ? gpuDevices
-              .map((gpu) => {
-                const assignedVm = getVm(gpu.assignedVmId);
-                const status = gpu.assignmentStatus || getGpuAssignmentStatus(gpu, server.id);
-                return `
-                  <div class="gpu-assignment ${escapeHtml(status)}">
-                    <span>${escapeHtml(gpu.displayName || gpu.model || "GPU passthrough")}</span>
-                    <small>PCIe: ${escapeHtml(gpu.pcieBusString || "Missing")}</small>
-                    <small>Assigned VM: ${escapeHtml(assignedVm?.name || gpu.assignedVmName || "Missing")}</small>
-                    <small>Mode: ${escapeHtml(gpu.assignmentMode || "Hyper-V DDA")}</small>
-                    <em>${escapeHtml(getGpuStatusLabel(status))}</em>
-                  </div>
-                `;
-              })
-              .join("")
-          : `<div class="gpu-assignment empty"><span>No assigned GPU passthrough</span><small>Drop a VM here to assign one.</small></div>`
+        assignedDevices
+          .map((gpu) => {
+            const assignedVm = getVm(gpu.assignedVmId);
+            const status = gpu.assignmentStatus || getGpuAssignmentStatus(gpu, server.id);
+            return `
+              <div class="gpu-assignment ${escapeHtml(status)}">
+                <span>${escapeHtml(gpu.displayName || gpu.model || "GPU passthrough")}</span>
+                <small>PCIe: ${escapeHtml(gpu.pcieBusString || "Missing")}</small>
+                <small>Assigned VM: ${escapeHtml(assignedVm?.name || gpu.assignedVmName || "Missing")}</small>
+                <small>Mode: ${escapeHtml(gpu.assignmentMode || "Hyper-V DDA")}</small>
+                <em>${escapeHtml(getGpuStatusLabel(status))}</em>
+              </div>
+            `;
+          })
+          .join("")
       }
     </div>
   `;
 }
 
-function makeServerCpuSpec(server) {
+function makeServerStatusStrip(server) {
   const topology = getServerCpuTopology(server);
   const numaOpportunityCount = topology.physicalChips || 1;
-  const numaSummary = `${numaOpportunityCount} NUMA x ${topology.numaCpuPerNode} CPU`;
+  const totalSlots = parseGpuSlotCount(server.physicalGpuSlots);
+  const assignedCount = getAssignedGpuCount(server);
+  const gpuLabel = totalSlots ? `${assignedCount}/${totalSlots}` : "None";
+  const gpuClass = totalSlots && assignedCount >= totalSlots ? "is-full" : "";
 
   return `
-    <span class="cpu-numa-spec" title="1 NUMA = ${escapeHtml(topology.numaCpuPerNode)} CPU; ${escapeHtml(numaOpportunityCount)} assignment opportunit${numaOpportunityCount === 1 ? "y" : "ies"}">
-      <i aria-hidden="true"></i>
-      <b>${escapeHtml(server.cpu)}</b>
-      <small>${escapeHtml(numaSummary)}</small>
-    </span>
+    <div class="server-status-strip" aria-label="Server resource summary">
+      <span title="${escapeHtml(server.cpu)} total">
+        <b>CPU</b>
+        <em>${escapeHtml(topology.totalCpu || server.cpu)}</em>
+      </span>
+      <span title="1 NUMA = ${escapeHtml(topology.numaCpuPerNode)} CPU">
+        <b>NUMA</b>
+        <em>${escapeHtml(numaOpportunityCount)}x${escapeHtml(topology.numaCpuPerNode)}</em>
+      </span>
+      <span class="${escapeHtml(gpuClass)}" title="${escapeHtml(assignedCount)} assigned GPU passthrough slots out of ${escapeHtml(totalSlots)}">
+        <b>GPU</b>
+        <em>${escapeHtml(gpuLabel)}</em>
+      </span>
+    </div>
+  `;
+}
+
+function makeServerDetailLine(server) {
+  const details = [server.ram, server.storage, server.gpus].filter((detail) => String(detail || "").trim());
+
+  if (!details.length) {
+    return "";
+  }
+
+  return `
+    <div class="server-detail-line">
+      ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join("")}
+    </div>
   `;
 }
 
@@ -1660,12 +1678,8 @@ function makeNodeElement(node) {
           <strong>${escapeHtml(server.name)}</strong>
         </div>
         ${makeIpChip(server.staticIp)}
-        <div class="compact-specs">
-          ${makeServerCpuSpec(server)}
-          <span>${escapeHtml(server.ram)}</span>
-          <span>${escapeHtml(server.storage)}</span>
-          <span>${escapeHtml(server.gpus)}</span>
-        </div>
+        ${makeServerStatusStrip(server)}
+        ${makeServerDetailLine(server)}
         ${makeServerGpuAssignments(server)}
         <div class="vm-bay" aria-label="VMs loaded on ${escapeHtml(server.name)}"></div>
       </div>

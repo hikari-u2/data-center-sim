@@ -9,11 +9,12 @@
       "storage": "4 TB SSD",
       "gpus": "2 x NVIDIA L40S",
       "staticIp": "192.168.11.110",
-      "vmIds": [
-        "vm-db"
-      ],
+      "vmIds": [],
       "x": 5.3642461586459715,
-      "y": 31.81743421052631
+      "y": 31.81743421052631,
+      "physicalGpuSlots": 2,
+      "gpuDevices": [],
+      "coresPerCpuChip": 16
     },
     {
       "id": "storage-03",
@@ -26,7 +27,10 @@
       "staticIp": "192.168.1.11",
       "vmIds": [],
       "x": 69.51680836128227,
-      "y": 25.39954874494688
+      "y": 25.39954874494688,
+      "physicalGpuSlots": 0,
+      "gpuDevices": [],
+      "coresPerCpuChip": 12
     },
     {
       "id": "compute-03",
@@ -36,10 +40,13 @@
       "ram": "96 GB",
       "storage": "3 TB SSD",
       "gpus": "None",
-      "staticIp": "192.168.1.12",
+      "staticIp": "192.168.11.12",
       "vmIds": [],
-      "x": 37.63941970205133,
-      "y": 44.41571871768355
+      "x": 37.29351158038147,
+      "y": 33.08467741935484,
+      "physicalGpuSlots": 0,
+      "gpuDevices": [],
+      "coresPerCpuChip": 24
     }
   ],
   "network": {
@@ -83,29 +90,56 @@
   ],
   "vms": [
     {
-      "id": "vm-web",
-      "name": "web-01",
-      "size": "2 CPU / 4 GB"
-    },
-    {
       "id": "vm-db",
       "name": "db-01",
-      "size": "4 CPU / 16 GB"
+      "size": "4 CPU / 20 GB",
+      "hostServerId": "",
+      "gpuPassthrough": {
+        "enabled": false,
+        "gpuId": "",
+        "pcieBusString": "",
+        "assignmentMode": ""
+      },
+      "gpuPassthroughWarning": ""
     },
     {
       "id": "vm-test",
       "name": "test-lab",
-      "size": "2 CPU / 8 GB"
+      "size": "2 CPU / 8 GB",
+      "hostServerId": "",
+      "gpuPassthrough": {
+        "enabled": false,
+        "gpuId": "",
+        "pcieBusString": "",
+        "assignmentMode": ""
+      },
+      "gpuPassthroughWarning": ""
     },
     {
       "id": "vm-gpu",
       "name": "ai-worker",
-      "size": "8 CPU / 32 GB / GPU"
+      "size": "8 CPU / 32 GB / GPU",
+      "hostServerId": "",
+      "gpuPassthrough": {
+        "enabled": false,
+        "gpuId": "",
+        "pcieBusString": "",
+        "assignmentMode": ""
+      },
+      "gpuPassthroughWarning": ""
     },
     {
       "id": "vm-backup",
       "name": "backup-01",
-      "size": "2 CPU / 8 GB"
+      "size": "2 CPU / 8 GB",
+      "hostServerId": "",
+      "gpuPassthrough": {
+        "enabled": false,
+        "gpuId": "",
+        "pcieBusString": "",
+        "assignmentMode": ""
+      },
+      "gpuPassthroughWarning": ""
     }
   ]
 }
