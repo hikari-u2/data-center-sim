@@ -1,61 +1,68 @@
-const servers = [
-  {
-    id: "edge-01",
-    name: "Edge-01",
-    status: "Online",
-    cpu: "16 vCPU",
-    ram: "64 GB",
-    storage: "2 TB NVMe",
-    gpus: "1 x NVIDIA A10",
-    vmIds: ["vm-web"],
-    x: 60,
-    y: 18,
-  },
-  {
-    id: "compute-02",
-    name: "Compute-02",
-    status: "Online",
-    cpu: "32 vCPU",
-    ram: "128 GB",
-    storage: "4 TB SSD",
-    gpus: "2 x NVIDIA L40S",
-    vmIds: [],
-    x: 60,
-    y: 43,
-  },
-  {
-    id: "storage-03",
-    name: "Storage-03",
-    status: "Online",
-    cpu: "12 vCPU",
-    ram: "96 GB",
-    storage: "24 TB HDD",
-    gpus: "None",
-    vmIds: ["vm-db"],
-    x: 60,
-    y: 68,
-  },
-];
+const DEFAULT_CONFIG = {
+  servers: [
+    {
+      id: "edge-01",
+      name: "Edge-01",
+      status: "Online",
+      cpu: "16 vCPU",
+      ram: "64 GB",
+      storage: "2 TB NVMe",
+      gpus: "1 x NVIDIA A10",
+      vmIds: ["vm-web"],
+      x: 58,
+      y: 8,
+    },
+    {
+      id: "compute-02",
+      name: "Compute-02",
+      status: "Online",
+      cpu: "32 vCPU",
+      ram: "128 GB",
+      storage: "4 TB SSD",
+      gpus: "2 x NVIDIA L40S",
+      vmIds: [],
+      x: 64,
+      y: 40,
+    },
+    {
+      id: "storage-03",
+      name: "Storage-03",
+      status: "Online",
+      cpu: "12 vCPU",
+      ram: "96 GB",
+      storage: "24 TB HDD",
+      gpus: "None",
+      vmIds: ["vm-db"],
+      x: 58,
+      y: 72,
+    },
+  ],
+  infrastructureNodes: [
+    { id: "desktop", type: "desktop", name: "Admin Desktop", x: 8, y: 42 },
+    { id: "switch", type: "switch", name: "Core Switch", x: 34, y: 43 },
+  ],
+  links: [
+    { from: "desktop", to: "switch" },
+    { from: "switch", to: "edge-01" },
+    { from: "switch", to: "compute-02" },
+    { from: "switch", to: "storage-03" },
+  ],
+  vms: [
+    { id: "vm-web", name: "web-01", size: "2 CPU / 4 GB" },
+    { id: "vm-db", name: "db-01", size: "4 CPU / 16 GB" },
+    { id: "vm-test", name: "test-lab", size: "2 CPU / 8 GB" },
+    { id: "vm-gpu", name: "ai-worker", size: "8 CPU / 32 GB / GPU" },
+    { id: "vm-backup", name: "backup-01", size: "2 CPU / 8 GB" },
+  ],
+};
 
-const infrastructureNodes = [
-  { id: "desktop", type: "desktop", name: "Admin Desktop", x: 8, y: 42 },
-  { id: "switch", type: "switch", name: "Core Switch", x: 36, y: 43 },
-];
+const CONFIG_API_URL = "/api/config";
+const CONFIG_FILE_URL = "data/config.json";
 
-const links = [
-  { from: "desktop", to: "switch" },
-  { from: "switch", to: "edge-01" },
-  { from: "switch", to: "compute-02" },
-  { from: "switch", to: "storage-03" },
-];
-
-const vms = [
-  { id: "vm-web", name: "web-01", size: "2 CPU / 4 GB" },
-  { id: "vm-db", name: "db-01", size: "4 CPU / 16 GB" },
-  { id: "vm-test", name: "test-lab", size: "2 CPU / 8 GB" },
-  { id: "vm-gpu", name: "ai-worker", size: "8 CPU / 32 GB / GPU" },
-  { id: "vm-backup", name: "backup-01", size: "2 CPU / 8 GB" },
-];
+let servers = [];
+let infrastructureNodes = [];
+let links = [];
+let vms = [];
 
 const topologyCanvas = document.querySelector("#topology-canvas");
 const nodeLayer = document.querySelector("#node-layer");
@@ -78,6 +85,82 @@ let selectedNodeId = null;
 let selectedServerId = null;
 let dragging = null;
 let suppressedClickNodeId = null;
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalizeConfig(config) {
+  const fallback = clone(DEFAULT_CONFIG);
+  const safeConfig = config && typeof config === "object" ? config : fallback;
+
+  return {
+    servers: Array.isArray(safeConfig.servers) ? safeConfig.servers : fallback.servers,
+    infrastructureNodes: Array.isArray(safeConfig.infrastructureNodes)
+      ? safeConfig.infrastructureNodes
+      : fallback.infrastructureNodes,
+    links: Array.isArray(safeConfig.links) ? safeConfig.links : fallback.links,
+    vms: Array.isArray(safeConfig.vms) ? safeConfig.vms : fallback.vms,
+  };
+}
+
+function applyConfig(config) {
+  const normalized = normalizeConfig(config);
+  servers = clone(normalized.servers);
+  infrastructureNodes = clone(normalized.infrastructureNodes);
+  links = clone(normalized.links);
+  vms = clone(normalized.vms);
+}
+
+function serializeConfig() {
+  return {
+    servers,
+    infrastructureNodes,
+    links,
+    vms,
+  };
+}
+
+async function loadConfig() {
+  for (const url of [CONFIG_API_URL, CONFIG_FILE_URL]) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok) {
+        applyConfig(await response.json());
+        return;
+      }
+    } catch {
+      // Continue to the next source.
+    }
+  }
+
+  applyConfig(DEFAULT_CONFIG);
+}
+
+async function saveConfig() {
+  try {
+    const response = await fetch(CONFIG_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(serializeConfig(), null, 2),
+    });
+
+    if (!response.ok) {
+      throw new Error("Config save failed");
+    }
+  } catch (error) {
+    console.warn("Config could not be saved to data/config.json. Run the app with serve-local.ps1.", error);
+  }
+}
 
 function getAllNodes() {
   return [...infrastructureNodes, ...servers.map((server) => ({ ...server, type: "server" }))];
@@ -104,6 +187,17 @@ function slugify(value) {
 
 function getNextServerName() {
   return `Compute-${String(servers.length + 1).padStart(2, "0")}`;
+}
+
+function getNextServerPosition() {
+  const serverIndex = servers.length;
+  const columns = [56, 72];
+  const rows = [8, 38, 68];
+
+  return {
+    x: columns[serverIndex % columns.length],
+    y: rows[Math.floor(serverIndex / columns.length) % rows.length],
+  };
 }
 
 function getServerFormData() {
@@ -156,7 +250,7 @@ function makeVmCard(vm) {
   card.className = "vm-card";
   card.draggable = true;
   card.dataset.vmId = vm.id;
-  card.innerHTML = `<strong>${vm.name}</strong><span>${vm.size}</span>`;
+  card.innerHTML = `<strong>${escapeHtml(vm.name)}</strong><span>${escapeHtml(vm.size)}</span>`;
   card.addEventListener("dragstart", (event) => {
     event.dataTransfer.setData("text/plain", vm.id);
     event.dataTransfer.effectAllowed = "move";
@@ -177,6 +271,7 @@ function moveVmToServer(vmId, serverId) {
   }
 
   render();
+  saveConfig();
 }
 
 function attachDropZone(element, serverId) {
@@ -222,15 +317,15 @@ function makeNodeElement(node) {
       <div class="node-content">
         <div class="node-title">
           <span>Server</span>
-          <strong>${server.name}</strong>
+          <strong>${escapeHtml(server.name)}</strong>
         </div>
         <div class="compact-specs">
-          <span>${server.cpu}</span>
-          <span>${server.ram}</span>
-          <span>${server.storage}</span>
-          <span>${server.gpus}</span>
+          <span>${escapeHtml(server.cpu)}</span>
+          <span>${escapeHtml(server.ram)}</span>
+          <span>${escapeHtml(server.storage)}</span>
+          <span>${escapeHtml(server.gpus)}</span>
         </div>
-        <div class="vm-bay" aria-label="VMs loaded on ${server.name}"></div>
+        <div class="vm-bay" aria-label="VMs loaded on ${escapeHtml(server.name)}"></div>
       </div>
     `;
 
@@ -250,7 +345,7 @@ function makeNodeElement(node) {
       </div>
       <div class="node-title">
         <span>Network</span>
-        <strong>${node.name}</strong>
+        <strong>${escapeHtml(node.name)}</strong>
       </div>
     `;
   } else {
@@ -261,7 +356,7 @@ function makeNodeElement(node) {
       </div>
       <div class="node-title">
         <span>Desktop</span>
-        <strong>${node.name}</strong>
+        <strong>${escapeHtml(node.name)}</strong>
       </div>
     `;
   }
@@ -277,7 +372,6 @@ function startDrag(event) {
   }
 
   const nodeId = event.currentTarget.dataset.nodeId;
-  const node = getNode(nodeId);
   const rect = topologyCanvas.getBoundingClientRect();
   const nodeRect = event.currentTarget.getBoundingClientRect();
 
@@ -291,8 +385,6 @@ function startDrag(event) {
   };
 
   event.currentTarget.setPointerCapture(event.pointerId);
-  node.x = ((nodeRect.left - rect.left) / rect.width) * 100;
-  node.y = ((nodeRect.top - rect.top) / rect.height) * 100;
 }
 
 function moveDrag(event) {
@@ -320,6 +412,7 @@ function moveDrag(event) {
 function stopDrag() {
   if (dragging?.moved) {
     suppressedClickNodeId = dragging.nodeId;
+    saveConfig();
   }
 
   dragging = null;
@@ -350,6 +443,7 @@ function handleNodeClick(nodeId) {
 
   if (selectedNodeId !== nodeId) {
     addLink(selectedNodeId, nodeId);
+    saveConfig();
   }
 
   selectedNodeId = null;
@@ -472,7 +566,7 @@ function createServer(values) {
     suffix += 1;
   }
 
-  const offset = servers.length % 4;
+  const position = getNextServerPosition();
   servers.push({
     id,
     name,
@@ -482,8 +576,8 @@ function createServer(values) {
     storage: values.storage,
     gpus: values.gpus,
     vmIds: [],
-    x: 58 + offset * 6,
-    y: 16 + offset * 17,
+    x: position.x,
+    y: position.y,
   });
 
   addLink("switch", id);
@@ -516,6 +610,7 @@ function saveServer(event) {
   }
 
   render();
+  saveConfig();
 }
 
 function deleteSelectedServer() {
@@ -532,6 +627,7 @@ function deleteSelectedServer() {
     ...links.filter((link) => link.from !== deletedId && link.to !== deletedId),
   );
   resetServerForm();
+  saveConfig();
 }
 
 serverForm.addEventListener("submit", saveServer);
@@ -553,4 +649,7 @@ topologyCanvas.addEventListener("pointercancel", stopDrag);
 window.addEventListener("resize", renderLinks);
 
 attachDropZone(vmPool, "pool");
-render();
+loadConfig().then(() => {
+  resetServerForm();
+  render();
+});

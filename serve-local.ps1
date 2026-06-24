@@ -2,8 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $Root = [System.IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
 $RootPrefix = $Root.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+$ConfigPath = Join-Path (Join-Path $Root "data") "config.json"
 $Port = 8080
-$Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
+$IsWindowsHost = $PSVersionTable.PSEdition -eq "Desktop" -or $PSVersionTable.Platform -eq "Win32NT"
+$BindAddress = if ($IsWindowsHost) { [System.Net.IPAddress]::Loopback } else { [System.Net.IPAddress]::Any }
+$Listener = [System.Net.Sockets.TcpListener]::new($BindAddress, $Port)
 
 function Get-ContentType {
   param([string] $Path)
@@ -33,8 +36,12 @@ function Send-Response {
 
   $Header = "HTTP/1.1 $StatusCode $StatusText`r`nContent-Length: $($Body.Length)`r`nContent-Type: $ContentType`r`nConnection: close`r`n`r`n"
   $HeaderBytes = [System.Text.Encoding]::ASCII.GetBytes($Header)
-  $Stream.Write($HeaderBytes, 0, $HeaderBytes.Length)
-  $Stream.Write($Body, 0, $Body.Length)
+  try {
+    $Stream.Write($HeaderBytes, 0, $HeaderBytes.Length)
+    $Stream.Write($Body, 0, $Body.Length)
+  } catch {
+    # Clients can close early, especially for HEAD/probe requests.
+  }
 }
 
 try {
@@ -53,13 +60,15 @@ try {
   Write-Host "Open: $Url"
   Write-Host "Press Ctrl+C to stop."
   Write-Host ""
-  Start-Process $Url
+  if ($IsWindowsHost) {
+    Start-Process $Url
+  }
 
   while ($true) {
     $Client = $Listener.AcceptTcpClient()
     try {
       $Stream = $Client.GetStream()
-      $Reader = [System.IO.StreamReader]::new($Stream, [System.Text.Encoding]::ASCII, $false, 1024, $true)
+      $Reader = [System.IO.StreamReader]::new($Stream, [System.Text.Encoding]::UTF8, $false, 1024, $true)
       $RequestLine = $Reader.ReadLine()
 
       if ([string]::IsNullOrWhiteSpace($RequestLine)) {
@@ -67,8 +76,68 @@ try {
       }
 
       $Parts = $RequestLine.Split(" ")
+      $Method = if ($Parts.Length -gt 0) { $Parts[0] } else { "GET" }
       $RequestPath = if ($Parts.Length -gt 1) { $Parts[1] } else { "/" }
       $RequestPath = [System.Uri]::UnescapeDataString($RequestPath.Split("?")[0])
+
+      $Headers = @{}
+      while ($true) {
+        $HeaderLine = $Reader.ReadLine()
+        if ([string]::IsNullOrEmpty($HeaderLine)) {
+          break
+        }
+
+        $HeaderParts = $HeaderLine.Split(":", 2)
+        if ($HeaderParts.Length -eq 2) {
+          $Headers[$HeaderParts[0].Trim().ToLowerInvariant()] = $HeaderParts[1].Trim()
+        }
+      }
+
+      if ($RequestPath -eq "/api/config") {
+        if ($Method -eq "GET") {
+          if (Test-Path $ConfigPath -PathType Leaf) {
+            $Body = [System.IO.File]::ReadAllBytes($ConfigPath)
+            Send-Response $Stream 200 "OK" $Body "application/json; charset=utf-8"
+          } else {
+            $Body = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""Config file not found""}")
+            Send-Response $Stream 404 "Not Found" $Body "application/json; charset=utf-8"
+          }
+          continue
+        }
+
+        if ($Method -eq "POST") {
+          $ContentLength = if ($Headers.ContainsKey("content-length")) { [int] $Headers["content-length"] } else { 0 }
+          $Json = ""
+          if ($ContentLength -gt 0) {
+            $Chars = New-Object char[] $ContentLength
+            $Read = $Reader.ReadBlock($Chars, 0, $ContentLength)
+            if ($Read -gt 0) {
+              $Json = -join $Chars[0..($Read - 1)]
+            }
+          }
+          $Json = $Json.TrimStart([char]0xFEFF)
+
+          try {
+            $null = $Json | ConvertFrom-Json
+            $ConfigDirectory = Split-Path -Parent $ConfigPath
+            if (-not (Test-Path $ConfigDirectory -PathType Container)) {
+              New-Item -ItemType Directory -Path $ConfigDirectory | Out-Null
+            }
+            $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText($ConfigPath, $Json + [Environment]::NewLine, $Utf8NoBom)
+            $Body = [System.Text.Encoding]::UTF8.GetBytes("{""ok"":true}")
+            Send-Response $Stream 200 "OK" $Body "application/json; charset=utf-8"
+          } catch {
+            $Body = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""Invalid config JSON""}")
+            Send-Response $Stream 400 "Bad Request" $Body "application/json; charset=utf-8"
+          }
+          continue
+        }
+
+        $Body = [System.Text.Encoding]::UTF8.GetBytes("{""error"":""Method not allowed""}")
+        Send-Response $Stream 405 "Method Not Allowed" $Body "application/json; charset=utf-8"
+        continue
+      }
 
       if ($RequestPath -eq "/") {
         $RequestPath = "/index.html"

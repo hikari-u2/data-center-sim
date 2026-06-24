@@ -1,0 +1,87 @@
+{
+  "servers": [
+    {
+      "id": "compute-02",
+      "name": "Compute-02",
+      "status": "Online",
+      "cpu": "32 vCPU",
+      "ram": "128 GB",
+      "storage": "4 TB SSD",
+      "gpus": "2 x NVIDIA L40S",
+      "vmIds": [],
+      "x": 61.5524754425269,
+      "y": 7.094726562500001
+    },
+    {
+      "id": "storage-03",
+      "name": "Storage-03",
+      "status": "Online",
+      "cpu": "12 vCPU",
+      "ram": "96 GB",
+      "storage": "24 TB HDD",
+      "gpus": "None",
+      "vmIds": [
+        "vm-db"
+      ],
+      "x": 62.83020261454,
+      "y": 61.86035156250001
+    }
+  ],
+  "infrastructureNodes": [
+    {
+      "id": "desktop",
+      "type": "desktop",
+      "name": "Admin Desktop",
+      "x": 4.507742681996111,
+      "y": 42.02392578125
+    },
+    {
+      "id": "switch",
+      "type": "switch",
+      "name": "Core Switch",
+      "x": 33.61481080282626,
+      "y": 42.88330078125
+    }
+  ],
+  "links": [
+    {
+      "from": "desktop",
+      "to": "switch"
+    },
+    {
+      "from": "switch",
+      "to": "compute-02"
+    },
+    {
+      "from": "switch",
+      "to": "storage-03"
+    }
+  ],
+  "vms": [
+    {
+      "id": "vm-web",
+      "name": "web-01",
+      "size": "2 CPU / 4 GB"
+    },
+    {
+      "id": "vm-db",
+      "name": "db-01",
+      "size": "4 CPU / 16 GB"
+    },
+    {
+      "id": "vm-test",
+      "name": "test-lab",
+      "size": "2 CPU / 8 GB"
+    },
+    {
+      "id": "vm-gpu",
+      "name": "ai-worker",
+      "size": "8 CPU / 32 GB / GPU"
+    },
+    {
+      "id": "vm-backup",
+      "name": "backup-01",
+      "size": "2 CPU / 8 GB"
+    }
+  ]
+}
