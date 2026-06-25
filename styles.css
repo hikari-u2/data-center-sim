@@ -1223,6 +1223,63 @@ h1 {
     0 10px 24px rgba(18, 38, 63, 0.14);
 }
 
+.topology-node.sticky-note {
+  width: 200px;
+  min-height: 170px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid #b89a3a;
+  border-radius: 6px;
+  background: #fff7b3;
+  box-shadow:
+    0 12px 20px rgba(133, 98, 11, 0.2),
+    0 2px 0 rgba(255, 255, 255, 0.45) inset;
+}
+
+.sticky-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-bottom: 1px dashed rgba(92, 74, 14, 0.38);
+  color: #5a4609;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sticky-note-delete {
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
+  border: 1px solid rgba(93, 59, 0, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.4);
+  color: #6a2f2f;
+  font-weight: 900;
+}
+
+.sticky-note-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 128px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: #2f2504;
+  line-height: 1.35;
+  font-size: 0.82rem;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  resize: none;
+}
+
+.sticky-note-editor:focus {
+  outline: 2px solid rgba(45, 98, 136, 0.3);
+  outline-offset: -2px;
+}
+
 .server-topology {
   display: grid;
   grid-template-columns: 14px 1fr;
@@ -1734,6 +1791,10 @@ h1 {
 
   .topology-node {
     width: min(210px, calc(100% - 24px));
+  }
+
+  .topology-node.sticky-note {
+    width: min(190px, calc(100% - 24px));
   }
 
   .switch-topology,

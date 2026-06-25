@@ -106,6 +106,7 @@ const DEFAULT_CONFIG = {
 
 const CONFIG_API_URL = "/api/config";
 const CONFIG_FILE_URL = "data/config.json";
+const STICKY_NOTES_STORAGE_KEY = "data-center-sim.sticky-notes";
 
 let servers = [];
 let network = {};
@@ -142,6 +143,7 @@ const serverCount = document.querySelector("#server-count");
 const linkCount = document.querySelector("#link-count");
 const vmCount = document.querySelector("#vm-count");
 const joinToggle = document.querySelector("#join-toggle");
+const addStickyNoteButton = document.querySelector("#add-sticky-note");
 const clearSelection = document.querySelector("#clear-selection");
 const joinHelp = document.querySelector("#join-help");
 const networkForm = document.querySelector("#network-form");
@@ -193,6 +195,7 @@ let gpuDraftDevices = [];
 let pendingGpuAssignment = null;
 let dragging = null;
 let suppressedClickNodeId = null;
+let stickyNotes = [];
 const DEFAULT_SWITCH_PORTS = 8;
 const DEFAULT_SERVER_SUBNET = "192.168.1.0/24";
 const SAMPLE_PCIE_LOCATION_PATH = "PCIROOT(0)#PCI(1D00)#PCI(0000)";
@@ -1636,6 +1639,88 @@ function normalizeConfig(config) {
   };
 }
 
+function normalizeStickyNote(note, index = 0) {
+  const safeNote = note && typeof note === "object" ? note : {};
+  const id = typeof safeNote.id === "string" && safeNote.id.trim() ? safeNote.id.trim() : `note-${crypto.randomUUID()}`;
+  const fallbackX = 8 + (index % 4) * 7;
+  const fallbackY = 8 + Math.floor(index / 4) * 7;
+
+  return {
+    id,
+    text: typeof safeNote.text === "string" ? safeNote.text : "",
+    x: Number.isFinite(Number(safeNote.x)) ? Number(safeNote.x) : fallbackX,
+    y: Number.isFinite(Number(safeNote.y)) ? Number(safeNote.y) : fallbackY,
+  };
+}
+
+function loadStickyNotesFromStorage() {
+  try {
+    const rawValue = window.localStorage.getItem(STICKY_NOTES_STORAGE_KEY);
+    if (!rawValue) {
+      stickyNotes = [];
+      return;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      stickyNotes = [];
+      return;
+    }
+
+    stickyNotes = parsed.map((note, index) => normalizeStickyNote(note, index));
+  } catch {
+    stickyNotes = [];
+  }
+}
+
+function saveStickyNotesToStorage() {
+  try {
+    window.localStorage.setItem(STICKY_NOTES_STORAGE_KEY, JSON.stringify(stickyNotes));
+  } catch {
+    // Ignore localStorage quota/unavailable errors.
+  }
+}
+
+function getStickyNote(noteId) {
+  return stickyNotes.find((note) => note.id === noteId) || null;
+}
+
+function getNextStickyNotePosition() {
+  const index = stickyNotes.length;
+  return {
+    x: Math.min(82, 10 + (index % 5) * 8),
+    y: Math.min(82, 10 + Math.floor(index / 5) * 8),
+  };
+}
+
+function createStickyNote() {
+  const position = getNextStickyNotePosition();
+  stickyNotes.push(
+    normalizeStickyNote(
+      {
+        id: `note-${crypto.randomUUID()}`,
+        text: "",
+        x: position.x,
+        y: position.y,
+      },
+      stickyNotes.length,
+    ),
+  );
+  saveStickyNotesToStorage();
+  render();
+}
+
+function updateStickyNoteText(noteId, text) {
+  stickyNotes = stickyNotes.map((note) => (note.id === noteId ? { ...note, text } : note));
+  saveStickyNotesToStorage();
+}
+
+function deleteStickyNote(noteId) {
+  stickyNotes = stickyNotes.filter((note) => note.id !== noteId);
+  saveStickyNotesToStorage();
+  render();
+}
+
 function applyConfig(config) {
   const normalized = normalizeConfig(config);
   servers = clone(normalized.servers);
@@ -1707,6 +1792,10 @@ function getAllNodes() {
 
 function getNode(id) {
   return getAllNodes().find((node) => node.id === id);
+}
+
+function getDraggableNodeById(nodeId) {
+  return getServer(nodeId) || infrastructureNodes.find((item) => item.id === nodeId) || getStickyNote(nodeId);
 }
 
 function getServer(id) {
@@ -3120,8 +3209,29 @@ function makeNodeElement(node) {
   return element;
 }
 
+function makeStickyNoteElement(note) {
+  const element = document.createElement("article");
+  element.className = "topology-node sticky-note";
+  element.dataset.nodeId = note.id;
+  element.style.left = `${note.x}%`;
+  element.style.top = `${note.y}%`;
+  element.innerHTML = `
+    <div class="sticky-note-header">
+      <span>Sticky Note</span>
+      <button type="button" class="sticky-note-delete" data-sticky-note-delete="${escapeHtml(note.id)}" aria-label="Delete sticky note">x</button>
+    </div>
+    <textarea class="sticky-note-editor" data-sticky-note-text="${escapeHtml(note.id)}" placeholder="Type note...">${escapeHtml(note.text)}</textarea>
+  `;
+
+  element.addEventListener("pointerdown", startDrag);
+  element.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  return element;
+}
+
 function startDrag(event) {
-  if (event.button !== 0 || event.target.closest(".vm-card")) {
+  if (event.button !== 0 || event.target.closest(".vm-card, textarea, .sticky-note-delete")) {
     return;
   }
 
@@ -3147,7 +3257,10 @@ function moveDrag(event) {
   }
 
   const rect = topologyCanvas.getBoundingClientRect();
-  const node = getServer(dragging.nodeId) || infrastructureNodes.find((item) => item.id === dragging.nodeId);
+  const node = getDraggableNodeById(dragging.nodeId);
+  if (!node) {
+    return;
+  }
   const nextX = ((event.clientX - rect.left - dragging.offsetX) / rect.width) * 100;
   const nextY = ((event.clientY - rect.top - dragging.offsetY) / rect.height) * 100;
   const maxX = 100 - (dragging.width / rect.width) * 100;
@@ -3166,7 +3279,11 @@ function moveDrag(event) {
 function stopDrag() {
   if (dragging?.moved) {
     suppressedClickNodeId = dragging.nodeId;
-    saveConfig();
+    if (getStickyNote(dragging.nodeId)) {
+      saveStickyNotesToStorage();
+    } else {
+      saveConfig();
+    }
   }
 
   dragging = null;
@@ -3218,6 +3335,12 @@ function renderNodes() {
   nodeLayer.innerHTML = "";
   getAllNodes().forEach((node) => {
     nodeLayer.appendChild(makeNodeElement(node));
+  });
+}
+
+function renderStickyNotes() {
+  stickyNotes.forEach((note) => {
+    nodeLayer.appendChild(makeStickyNoteElement(note));
   });
 }
 
@@ -3516,6 +3639,7 @@ function render() {
   renderVmFormState();
   renderGpuEditor();
   renderNodes();
+  renderStickyNotes();
   requestAnimationFrame(renderLinks);
   renderVmPool();
   renderIpManagement();
@@ -4062,6 +4186,24 @@ if (desktopExtraIpList) {
     }
   });
 }
+if (addStickyNoteButton) {
+  addStickyNoteButton.addEventListener("click", createStickyNote);
+}
+if (nodeLayer) {
+  nodeLayer.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-sticky-note-delete]");
+    if (deleteButton) {
+      deleteStickyNote(deleteButton.dataset.stickyNoteDelete);
+    }
+  });
+  nodeLayer.addEventListener("input", (event) => {
+    const textArea = event.target.closest("[data-sticky-note-text]");
+    if (!textArea) {
+      return;
+    }
+    updateStickyNoteText(textArea.dataset.stickyNoteText, textArea.value);
+  });
+}
 serverForm.elements.staticIp.addEventListener("input", () => {
   serverForm.elements.staticIp.setCustomValidity("");
 });
@@ -4131,6 +4273,7 @@ window.addEventListener("resize", renderLinks);
 
 attachDropZone(vmPool, "pool");
 loadConfig().then(() => {
+  loadStickyNotesFromStorage();
   const desktop = getInfrastructureNode("desktop");
   desktopExtraIpDrafts = (desktop?.extraIps || []).map((addr) =>
     normalizeDesktopExtraIpDraft({ address: addr }),
