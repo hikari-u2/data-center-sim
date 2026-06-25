@@ -122,6 +122,9 @@ const vmFormState = document.querySelector("#vm-form-state");
 const vmSubmit = document.querySelector("#vm-submit");
 const newVmButton = document.querySelector("#new-vm");
 const deleteVmButton = document.querySelector("#delete-vm");
+const addVmNicButton = document.querySelector("#add-vm-nic");
+const vmNicList = document.querySelector("#vm-nic-list");
+const vmNicError = document.querySelector("#vm-nic-error");
 const serverForm = document.querySelector("#server-form");
 const serverFormState = document.querySelector("#server-form-state");
 const serverSubmit = document.querySelector("#server-submit");
@@ -184,6 +187,7 @@ let selectedVmId = null;
 let selectedGpuId = null;
 let serverNicDrafts = [];
 let selectedServerNicId = null;
+let vmNicDrafts = [];
 let desktopExtraIpDrafts = [];
 let gpuDraftDevices = [];
 let pendingGpuAssignment = null;
@@ -933,29 +937,6 @@ function normalizeGpuDevice(gpu, hostServerId = "") {
 }
 
 const NIC_ADAPTER_TYPES = ["physical", "vm", "management-os", "virtual-switch"];
-const IP_ROLES = [
-  "primary",
-  "secondary",
-  "alias",
-  "management",
-  "cluster",
-  "storage",
-  "migration",
-  "backup",
-  "public",
-  "private",
-];
-// Roles that uniquely describe why a NIC sits in a given subnet, so two NICs on
-// the same host sharing that subnet is intentional rather than ambiguous.
-const DISAMBIGUATING_ROLES = new Set([
-  "management",
-  "cluster",
-  "storage",
-  "migration",
-  "backup",
-  "public",
-  "private",
-]);
 
 function detectIpVersion(address) {
   const value = String(address || "").trim();
@@ -1043,8 +1024,16 @@ function normalizeNic(nic, { hostServerId = "", vmId = "" } = {}) {
     macAddress: typeof safeNic.macAddress === "string" ? safeNic.macAddress.trim() : "",
     connectedVirtualSwitchId:
       typeof safeNic.connectedVirtualSwitchId === "string" ? safeNic.connectedVirtualSwitchId.trim() : "",
+    connectedVirtualSwitchName:
+      typeof safeNic.connectedVirtualSwitchName === "string"
+        ? safeNic.connectedVirtualSwitchName.trim()
+        : typeof safeNic.connectedVirtualSwitchId === "string"
+          ? safeNic.connectedVirtualSwitchId.trim()
+          : "",
     vlanId: toNullableInteger(safeNic.vlanId),
     ipAddresses: Array.isArray(safeNic.ipAddresses) ? safeNic.ipAddresses.map(normalizeIpAddress) : [],
+    status: typeof safeNic.status === "string" && safeNic.status.trim() ? safeNic.status.trim() : "connected",
+    notes: typeof safeNic.notes === "string" ? safeNic.notes.trim() : "",
   };
 }
 
@@ -1386,6 +1375,17 @@ function syncGpuAssignments() {
     vm.hostServerId = hostByVmId.get(vm.id) || "";
     vm.gpuPassthrough = getEmptyGpuPassthrough();
     vm.gpuPassthroughWarning = "";
+    vm.nics = getVmNicList(vm).map((nic) =>
+      normalizeNic(
+        {
+          ...nic,
+          vmId: vm.id,
+          hostServerId: vm.hostServerId,
+          connectedVirtualSwitchName: nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId,
+        },
+        { vmId: vm.id, hostServerId: vm.hostServerId },
+      ),
+    );
   });
 
   const allDevices = getAllGpuDevices();
@@ -1520,19 +1520,32 @@ function deriveVmCpuRam(vm) {
 function normalizeVm(vm) {
   const safeVm = vm && typeof vm === "object" ? vm : {};
   const { cpu, ram } = deriveVmCpuRam(safeVm);
+  const hostServerId = typeof safeVm.hostServerId === "string" ? safeVm.hostServerId : "";
+  const normalizedNics = Array.isArray(safeVm.nics)
+    ? safeVm.nics.map((nic) => normalizeNic(nic, { hostServerId, vmId: safeVm.id }))
+    : [];
   return {
     ...safeVm,
     cpu,
     ram,
     size: `${cpu} / ${ram}`,
-    hostServerId: typeof safeVm.hostServerId === "string" ? safeVm.hostServerId : "",
+    hostServerId,
     gpuPassthrough: normalizeGpuPassthrough(safeVm.gpuPassthrough),
     gpuPassthroughWarning: typeof safeVm.gpuPassthroughWarning === "string" ? safeVm.gpuPassthroughWarning : "",
-    nics: Array.isArray(safeVm.nics)
-      ? safeVm.nics.map((nic) =>
-          normalizeNic(nic, { hostServerId: safeVm.hostServerId || "", vmId: safeVm.id }),
-        )
-      : [],
+    nics: normalizedNics.length
+      ? normalizedNics
+      : [
+          normalizeNic(
+            {
+              name: "Network Adapter 1",
+              adapterType: "vm",
+              connectedVirtualSwitchId: "",
+              connectedVirtualSwitchName: "",
+              ipAddresses: [],
+            },
+            { hostServerId, vmId: safeVm.id },
+          ),
+        ],
   };
 }
 
@@ -2107,6 +2120,7 @@ function getVmFormData() {
     cpu,
     ram,
     size: `${cpu} / ${ram}`,
+    nics: clone(vmNicDrafts),
   };
 }
 
@@ -2115,6 +2129,9 @@ function fillVmForm(vm) {
   vmForm.elements.name.value = vm.name;
   vmForm.elements.cpu.value = parseCpuCount(cpu) || 2;
   vmForm.elements.ram.value = parseCpuCount(ram) || 4;
+  vmNicDrafts = getVmNicDraftsFromVm(vm);
+  setVmNicEditorError("");
+  renderVmNicEditor();
 }
 
 function resetVmForm() {
@@ -2122,6 +2139,9 @@ function resetVmForm() {
   vmForm.elements.name.value = getNextVmName();
   vmForm.elements.cpu.value = 2;
   vmForm.elements.ram.value = 4;
+  vmNicDrafts = [normalizeVmNicDraft({ name: "Network Adapter 1", ipAddresses: [{}] })];
+  setVmNicEditorError("");
+  renderVmNicEditor();
   render();
 }
 
@@ -2155,6 +2175,288 @@ function getServerNicList(server) {
 
 function getVmNicList(vm) {
   return Array.isArray(vm?.nics) ? vm.nics : [];
+}
+
+function normalizeVmNicIpDraft(ip) {
+  const safeIp = ip && typeof ip === "object" ? ip : {};
+  return {
+    id: typeof safeIp.id === "string" && safeIp.id.trim() ? safeIp.id.trim() : `ip-${crypto.randomUUID()}`,
+    address: typeof safeIp.address === "string" ? safeIp.address.trim() : "",
+    subnetMask: typeof safeIp.subnetMask === "string" ? safeIp.subnetMask.trim() : "255.255.255.0",
+  };
+}
+
+function normalizeVmNicDraft(nic, { vmId = "", hostServerId = "" } = {}) {
+  const safeNic = nic && typeof nic === "object" ? nic : {};
+  const switchName =
+    typeof safeNic.connectedVirtualSwitchName === "string" && safeNic.connectedVirtualSwitchName.trim()
+      ? safeNic.connectedVirtualSwitchName.trim()
+      : typeof safeNic.connectedVirtualSwitchId === "string" && safeNic.connectedVirtualSwitchId.trim()
+        ? safeNic.connectedVirtualSwitchId.trim()
+        : "";
+
+  return {
+    id: typeof safeNic.id === "string" && safeNic.id.trim() ? safeNic.id.trim() : `vmnic-${crypto.randomUUID()}`,
+    vmId: typeof safeNic.vmId === "string" && safeNic.vmId.trim() ? safeNic.vmId.trim() : vmId,
+    hostServerId:
+      typeof safeNic.hostServerId === "string" && safeNic.hostServerId.trim() ? safeNic.hostServerId.trim() : hostServerId,
+    name: typeof safeNic.name === "string" && safeNic.name.trim() ? safeNic.name.trim() : "Network Adapter",
+    connectedVirtualSwitchId:
+      typeof safeNic.connectedVirtualSwitchId === "string" && safeNic.connectedVirtualSwitchId.trim()
+        ? safeNic.connectedVirtualSwitchId.trim()
+        : switchName
+          ? slugify(switchName)
+          : "",
+    connectedVirtualSwitchName: switchName,
+    ipAddresses: Array.isArray(safeNic.ipAddresses)
+      ? safeNic.ipAddresses.map(normalizeVmNicIpDraft)
+      : [normalizeVmNicIpDraft({})],
+    status: typeof safeNic.status === "string" && safeNic.status.trim() ? safeNic.status.trim() : "connected",
+  };
+}
+
+function setVmNicEditorError(message = "") {
+  if (vmNicError) {
+    vmNicError.textContent = message;
+  }
+}
+
+function getHostServerIdForVmEditing() {
+  if (selectedVmId) {
+    const selectedVm = getVm(selectedVmId);
+    return selectedVm?.hostServerId || getVmHostServer(selectedVmId)?.id || "";
+  }
+  return "";
+}
+
+function getKnownHyperVSwitches(hostServerId = "", extraNics = []) {
+  const names = new Set();
+  const collect = (nic) => {
+    const name = String(nic?.connectedVirtualSwitchName || nic?.connectedVirtualSwitchId || "").trim();
+    if (name) {
+      names.add(name);
+    }
+  };
+
+  if (hostServerId) {
+    vms
+      .filter((vm) => vm.hostServerId === hostServerId)
+      .flatMap((vm) => getVmNicList(vm))
+      .forEach(collect);
+  }
+
+  extraNics.forEach(collect);
+
+  if (!names.size) {
+    names.add("vSwitch-Default");
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+function renderVmNicEditor() {
+  if (!vmNicList) {
+    return;
+  }
+
+  if (!vmNicDrafts.length) {
+    vmNicList.innerHTML = `<div class="server-nic-empty">No network adapters yet.</div>`;
+    return;
+  }
+
+  const switchOptions = getKnownHyperVSwitches(getHostServerIdForVmEditing(), vmNicDrafts);
+  const switchOptionsHtml = switchOptions.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+
+  vmNicList.innerHTML = vmNicDrafts
+    .map((nic, nicIndex) => {
+      const nicSwitchName = nic.connectedVirtualSwitchName || "";
+      const ipRows = nic.ipAddresses
+        .map(
+          (ip) => `
+            <div class="vm-nic-ip-row" data-vm-nic-id="${escapeHtml(nic.id)}" data-vm-nic-ip-id="${escapeHtml(ip.id)}">
+              <label>
+                <span>Static IP</span>
+                <input data-vm-nic-ip-field="address" data-vm-nic-id="${escapeHtml(nic.id)}" data-vm-nic-ip-id="${escapeHtml(ip.id)}" value="${escapeHtml(ip.address)}" placeholder="192.168.10.21" autocomplete="off" />
+              </label>
+              <label>
+                <span>Subnet Mask</span>
+                <input data-vm-nic-ip-field="subnetMask" data-vm-nic-id="${escapeHtml(nic.id)}" data-vm-nic-ip-id="${escapeHtml(ip.id)}" value="${escapeHtml(ip.subnetMask)}" placeholder="255.255.255.0" autocomplete="off" />
+              </label>
+              <button type="button" class="danger-button vm-nic-ip-remove" data-vm-nic-ip-remove="${escapeHtml(ip.id)}" data-vm-nic-id="${escapeHtml(nic.id)}">Remove</button>
+            </div>
+          `,
+        )
+        .join("");
+
+      return `
+        <div class="vm-nic-card">
+          <div class="vm-nic-grid">
+            <label>
+              <span>NIC Name</span>
+              <input data-vm-nic-field="name" data-vm-nic-id="${escapeHtml(nic.id)}" value="${escapeHtml(nic.name)}" placeholder="Network Adapter ${nicIndex + 1}" autocomplete="off" />
+            </label>
+            <label>
+              <span>Hyper-V Virtual Switch</span>
+              <input data-vm-nic-field="connectedVirtualSwitchName" data-vm-nic-id="${escapeHtml(nic.id)}" value="${escapeHtml(nicSwitchName)}" list="vm-switch-options-${escapeHtml(nic.id)}" placeholder="vSwitch-Prod" autocomplete="off" />
+              <datalist id="vm-switch-options-${escapeHtml(nic.id)}">${switchOptionsHtml}</datalist>
+            </label>
+            <label>
+              <span>Status</span>
+              <select data-vm-nic-field="status" data-vm-nic-id="${escapeHtml(nic.id)}">
+                <option value="connected"${nic.status === "connected" ? " selected" : ""}>connected</option>
+                <option value="disconnected"${nic.status === "disconnected" ? " selected" : ""}>disconnected</option>
+              </select>
+            </label>
+          </div>
+          <div class="vm-nic-ip-list">
+            ${ipRows || `<div class="server-nic-empty">No static IPs on this adapter.</div>`}
+          </div>
+          <div class="vm-nic-actions">
+            <button type="button" class="secondary-button vm-nic-add-ip" data-vm-nic-ip-add="${escapeHtml(nic.id)}">+ Add IP</button>
+            <button type="button" class="danger-button vm-nic-remove-adapter" data-vm-nic-remove="${escapeHtml(nic.id)}">Delete Adapter</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function addVmNicDraft() {
+  const nextIndex = vmNicDrafts.length + 1;
+  vmNicDrafts.push(
+    normalizeVmNicDraft({
+      name: `Network Adapter ${nextIndex}`,
+      ipAddresses: [{}],
+    }),
+  );
+  setVmNicEditorError("");
+  renderVmNicEditor();
+}
+
+function updateVmNicDraft(nicId, field, value) {
+  vmNicDrafts = vmNicDrafts.map((nic) => {
+    if (nic.id !== nicId) {
+      return nic;
+    }
+
+    if (field === "connectedVirtualSwitchName") {
+      const switchName = String(value || "").trim();
+      return {
+        ...nic,
+        connectedVirtualSwitchName: switchName,
+        connectedVirtualSwitchId: switchName ? slugify(switchName) : "",
+      };
+    }
+
+    return {
+      ...nic,
+      [field]: typeof value === "string" ? value.trim() : value,
+    };
+  });
+  setVmNicEditorError("");
+}
+
+function removeVmNicDraft(nicId) {
+  vmNicDrafts = vmNicDrafts.filter((nic) => nic.id !== nicId);
+  setVmNicEditorError("");
+  renderVmNicEditor();
+}
+
+function addVmNicIpDraft(nicId) {
+  vmNicDrafts = vmNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: [
+            ...nic.ipAddresses,
+            normalizeVmNicIpDraft({}),
+          ],
+        }
+      : nic,
+  );
+  setVmNicEditorError("");
+  renderVmNicEditor();
+}
+
+function updateVmNicIpDraft(nicId, ipId, field, value) {
+  vmNicDrafts = vmNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: nic.ipAddresses.map((ip) => {
+            if (ip.id !== ipId) {
+              return ip;
+            }
+
+            return {
+              ...ip,
+              [field]: typeof value === "string" ? value.trim() : value,
+            };
+          }),
+        }
+      : nic,
+  );
+  setVmNicEditorError("");
+}
+
+function removeVmNicIpDraft(nicId, ipId) {
+  vmNicDrafts = vmNicDrafts.map((nic) =>
+    nic.id === nicId
+      ? {
+          ...nic,
+          ipAddresses: nic.ipAddresses.filter((ip) => ip.id !== ipId),
+        }
+      : nic,
+  );
+  setVmNicEditorError("");
+  renderVmNicEditor();
+}
+
+function getVmNicDraftsFromVm(vm) {
+  const vmId = vm?.id || "";
+  const hostServerId = vm?.hostServerId || getVmHostServer(vmId)?.id || "";
+  const drafts = getVmNicList(vm).map((nic) =>
+    normalizeVmNicDraft(
+      {
+        ...nic,
+        connectedVirtualSwitchName: nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId,
+      },
+      { vmId, hostServerId },
+    ),
+  );
+  return drafts.length ? drafts : [normalizeVmNicDraft({ name: "Network Adapter 1", ipAddresses: [{}] }, { vmId, hostServerId })];
+}
+
+function buildVmNicsFromDrafts(vmId, hostServerId, nicDrafts) {
+  const drafts = nicDrafts.length
+    ? nicDrafts
+    : [normalizeVmNicDraft({ name: "Network Adapter 1", ipAddresses: [{}] }, { vmId, hostServerId })];
+
+  return drafts.map((draft, index) =>
+    normalizeNic(
+      {
+        id: draft.id,
+        vmId,
+        hostServerId,
+        name: draft.name || `Network Adapter ${index + 1}`,
+        adapterType: "vm",
+        connectedVirtualSwitchId: draft.connectedVirtualSwitchId,
+        connectedVirtualSwitchName: draft.connectedVirtualSwitchName,
+        status: draft.status,
+        ipAddresses: draft.ipAddresses.map((ip) =>
+          normalizeIpAddress({
+            id: ip.id,
+            address: ip.address,
+            version: "IPv4",
+            cidrPrefix: maskToPrefix(ip.subnetMask),
+            subnetMask: ip.subnetMask,
+            assignmentType: "static",
+          }),
+        ),
+      },
+      { hostServerId, vmId },
+    ),
+  );
 }
 
 // Flatten every adapter in the topology with its owning server/VM context so the
@@ -2222,7 +2524,6 @@ let networkValidation = emptyNetworkValidation();
 // cards, the IP table, and the warnings banner all share the same findings.
 function computeNetworkValidation() {
   const result = emptyNetworkValidation();
-  const subnet = getCurrentSubnet();
   const ipEntries = getAllIpEntries();
   const nicEntries = getAllNicEntries();
 
@@ -2239,44 +2540,31 @@ function computeNetworkValidation() {
     result.nicMessages.get(nicId).push(message);
   };
 
-  // Rule: warn if the same static IP address appears on more than one adapter.
+  // Rule: warn if the same static IP appears on multiple VMs/servers/adapters.
   const staticAddressOwners = new Map();
-  ipEntries.forEach(({ ip, nic }) => {
-    if (ip.assignmentType === "static" && ip.address) {
-      const key = ip.address.toLowerCase();
-      if (!staticAddressOwners.has(key)) {
-        staticAddressOwners.set(key, new Set());
-      }
-      staticAddressOwners.get(key).add(nic.id);
+  ipEntries.forEach(({ ip, nic, server, vm }) => {
+    if (!ip.address) {
+      return;
     }
+    const key = ip.address.toLowerCase();
+    if (!staticAddressOwners.has(key)) {
+      staticAddressOwners.set(key, []);
+    }
+    staticAddressOwners.get(key).push({ ip, nic, server, vm });
   });
 
   ipEntries.forEach(({ ip, nic, server, vm }) => {
     const ownerLabel = vm ? `VM ${vm.name}` : server ? server.name : "Unassigned";
 
-    if (ip.address && !isValidIpAddress(ip.address, ip.version)) {
-      addIpMessage(ip.id, `Invalid ${ip.version} address`);
+    if (ip.address && parseIp(ip.address) === null) {
+      addIpMessage(ip.id, "Invalid IPv4 address");
     }
 
-    // Rule: warn if a static IPv4 address sits outside its subnet CIDR.
-    if (ip.address && ip.version === "IPv4" && ip.assignmentType === "static") {
-      const subnetMessage = getNicIpSubnetMessage(ip);
-      if (subnetMessage) {
-        addIpMessage(ip.id, subnetMessage);
+    if (ip.address) {
+      const owners = staticAddressOwners.get(ip.address.toLowerCase()) || [];
+      if (owners.length > 1) {
+        addIpMessage(ip.id, "Duplicate static IP used on multiple VM/server adapters");
       }
-    }
-
-    // Rule: warn if the same static IP appears on more than one adapter.
-    if (ip.assignmentType === "static" && ip.address) {
-      const owners = staticAddressOwners.get(ip.address.toLowerCase());
-      if (owners && owners.size > 1) {
-        addIpMessage(ip.id, "Duplicate static IP used on multiple adapters");
-      }
-    }
-
-    // Rule: warn if a non-primary IP carries its own gateway.
-    if (ip.gateway && ip.role !== "primary" && ip.role !== "management") {
-      addIpMessage(ip.id, `${ip.role} IP should inherit the default route, not set a gateway`);
     }
 
     if (result.ipMessages.has(ip.id)) {
@@ -2290,65 +2578,39 @@ function computeNetworkValidation() {
   nicEntries.forEach(({ nic, server, vm }) => {
     const ownerLabel = vm ? `VM ${vm.name}` : server ? server.name : "Unassigned";
 
-    // Rule: only one IPv4 address may be primary per NIC.
-    const primaryIpv4 = nic.ipAddresses.filter((ip) => ip.version === "IPv4" && ip.role === "primary");
-    if (primaryIpv4.length > 1) {
-      addNicMessage(nic.id, "More than one IPv4 address marked primary");
-    }
+    if (vm || nic.adapterType === "vm") {
+      const expectedHostServerId = vm?.hostServerId || getVmHostServer(vm?.id || "")?.id || "";
+      const hostServer = expectedHostServerId ? getServer(expectedHostServerId) : null;
+      const hostSwitches = new Set(
+        getServerNicList(hostServer)
+          .filter((hostNic) => hostNic.adapterType === "virtual-switch")
+          .map((hostNic) => hostNic.name)
+          .filter(Boolean),
+      );
+      const connectedSwitchName = nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId;
 
-    // Rule: warn if a NIC has multiple default gateways.
-    const gateways = nic.ipAddresses.filter((ip) => ip.gateway).map((ip) => ip.gateway);
-    if (new Set(gateways).size > 1) {
-      addNicMessage(nic.id, "Multiple default gateways on one adapter");
-    }
+      // Rule: a VM NIC must connect to a Hyper-V virtual switch on the same host server.
+      if (!connectedSwitchName) {
+        addNicMessage(nic.id, "VM network adapter is not connected to a Hyper-V virtual switch");
+      }
+      if (expectedHostServerId && nic.hostServerId && nic.hostServerId !== expectedHostServerId) {
+        addNicMessage(nic.id, "VM network adapter switch is not on the VM host server");
+      }
+      if (hostSwitches.size && connectedSwitchName && !hostSwitches.has(connectedSwitchName)) {
+        addNicMessage(nic.id, `Hyper-V virtual switch \"${connectedSwitchName}\" is not defined on host ${hostServer?.name}`);
+      }
 
-    // Rule: warn if a VM network adapter has no IP address.
-    if ((vm || nic.adapterType === "vm") && nic.ipAddresses.length === 0) {
-      addNicMessage(nic.id, "VM network adapter has no IP address");
+      // Rule: warn if a VM network adapter has no static IP address.
+      if (!nic.ipAddresses.length) {
+        addNicMessage(nic.id, "VM network adapter has no static IP address");
+      }
+
     }
 
     if (result.nicMessages.has(nic.id)) {
       result.nicMessages.get(nic.id).forEach((message) => {
         result.warnings.push(`${ownerLabel} · ${nic.name}: ${message}`);
       });
-    }
-  });
-
-  // Rule: warn if two NICs on the same host share a subnet without a clear role.
-  const hostNetworkMap = new Map();
-  nicEntries.forEach(({ nic, server }) => {
-    if (!server) {
-      return;
-    }
-    nic.ipAddresses.forEach((ip) => {
-      if (ip.version !== "IPv4" || !ip.address) {
-        return;
-      }
-      const prefix = getIpEffectivePrefix(ip) ?? (subnet ? subnet.prefix : null);
-      const network = getIpv4Network(ip.address, prefix);
-      if (network === null) {
-        return;
-      }
-      const key = `${server.id}|${network}/${prefix}`;
-      if (!hostNetworkMap.has(key)) {
-        hostNetworkMap.set(key, { server, members: new Map() });
-      }
-      hostNetworkMap.get(key).members.set(nic.id, { nic, role: ip.role });
-    });
-  });
-
-  hostNetworkMap.forEach(({ server, members }) => {
-    if (members.size < 2) {
-      return;
-    }
-    const roleList = [...members.values()].map((member) => member.role);
-    const allDisambiguated =
-      roleList.every((role) => DISAMBIGUATING_ROLES.has(role)) && new Set(roleList).size === roleList.length;
-    if (!allDisambiguated) {
-      const nicNames = [...members.values()].map((member) => member.nic.name).join(", ");
-      result.warnings.push(
-        `${server.name}: NICs ${nicNames} share a subnet without distinct roles, which may cause routing ambiguity`,
-      );
     }
   });
 
@@ -2381,22 +2643,11 @@ function getIpStatus(ip, nic) {
 
 function makeNicIpLine(ip, nic) {
   const status = getIpStatus(ip, nic);
-  const cidr = formatIpCidr(ip) || "no address";
-  const tags = [];
-  if (ip.role) {
-    tags.push(ip.role);
-  }
-  if (ip.version === "IPv6") {
-    tags.push("IPv6");
-  }
-  if (ip.assignmentType === "dhcp") {
-    tags.push("DHCP");
-  }
+  const addressText = ip.address ? `${ip.address} / ${ip.subnetMask || "—"}` : "no address";
   const title = status.messages.length ? ` title="${escapeHtml(status.messages.join(" · "))}"` : "";
   return `
     <li class="nic-ip ${status.level === "warning" ? "is-warning" : ""}"${title}>
-      <span class="nic-ip-addr">${escapeHtml(cidr)}</span>
-      ${tags.map((tag) => `<span class="nic-ip-tag">${escapeHtml(tag)}</span>`).join("")}
+      <span class="nic-ip-addr">${escapeHtml(addressText)}</span>
     </li>
   `;
 }
@@ -2422,11 +2673,9 @@ function makeNicBlock(nic) {
   if (nic.macAddress) {
     meta.push({ label: escapeHtml(nic.macAddress), tone: "neutral" });
   }
-  if (nic.connectedVirtualSwitchId) {
-    meta.push({ label: escapeHtml(nic.connectedVirtualSwitchId), tone: "accent" });
-  }
-  if (Number.isInteger(nic.vlanId)) {
-    meta.push({ label: `VLAN ${escapeHtml(nic.vlanId)}`, tone: "accent" });
+  const switchName = nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId;
+  if (switchName) {
+    meta.push({ label: `Switch ${escapeHtml(switchName)}`, tone: "accent" });
   }
 
   const ipList = nic.ipAddresses.length
@@ -2458,15 +2707,115 @@ function makeServerNics(server) {
   `;
 }
 
+function getServerVmNicEntries(serverId) {
+  return getHostedVmsForServer(serverId).flatMap((vm) =>
+    getVmNicList(vm).map((nic) => ({ vm, nic })),
+  );
+}
+
+function makeServerHyperVSwitches(server) {
+  const vmNics = getServerVmNicEntries(server.id).filter(({ nic }) => nic.connectedVirtualSwitchId || nic.connectedVirtualSwitchName);
+  if (!vmNics.length) {
+    return "";
+  }
+
+  const switchMap = new Map();
+  vmNics.forEach(({ vm, nic }) => {
+    const switchName = nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId || "Unassigned";
+    if (!switchMap.has(switchName)) {
+      switchMap.set(switchName, []);
+    }
+    switchMap.get(switchName).push({ vm, nic });
+  });
+
+  return `
+    <div class="nic-panel">
+      <strong class="nic-panel-title">Hyper-V Switches</strong>
+      ${[...switchMap.entries()]
+        .map(
+          ([switchName, members]) => `
+            <div class="nic-block">
+              <div class="nic-head">
+                <strong>${escapeHtml(switchName)}</strong>
+                <span class="nic-type">vSwitch</span>
+              </div>
+              <ul class="nic-ip-list">
+                ${members
+                  .map(({ vm, nic }) => {
+                    const firstIp = nic.ipAddresses.find((ip) => ip.address)?.address || "—";
+                    return `<li class="nic-ip"><span class="nic-ip-addr">${escapeHtml(`${vm.name} / ${nic.name} / ${firstIp}`)}</span></li>`;
+                  })
+                  .join("")}
+              </ul>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function makeServerVmTopology(server) {
+  const rows = getServerVmNicEntries(server.id)
+    .flatMap(({ vm, nic }) =>
+      nic.ipAddresses.length
+        ? nic.ipAddresses.map((ip) => ({ vm, nic, ip }))
+        : [{ vm, nic, ip: null }],
+    )
+    .map(({ vm, nic, ip }) => {
+      const switchName = nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId || "Unassigned vSwitch";
+      const ipLabel = ip?.address || "No static IP";
+      return `<div class="vm-topology-row">${escapeHtml(`${vm.name} -> ${nic.name} -> ${switchName} -> ${server.name} (${ipLabel})`)}</div>`;
+    });
+
+  if (!rows.length) {
+    return "";
+  }
+
+  return `
+    <div class="vm-topology-panel">
+      <strong>VM -> VM NIC -> vSwitch -> Host</strong>
+      ${rows.join("")}
+    </div>
+  `;
+}
+
 function makeVmNics(vm) {
   const nics = getVmNicList(vm);
   if (!nics.length) {
     return "";
   }
+
+  const nicSummary = nics
+    .map((nic) => {
+      const staticIps = nic.ipAddresses.length
+        ? nic.ipAddresses
+            .map((ip) => `<li>${escapeHtml(`${ip.address || "—"} / ${ip.subnetMask || "—"}`)}</li>`)
+            .join("")
+        : "<li>No static IPs</li>";
+
+      return `
+        <div class="nic-block">
+          <div class="nic-head">
+            <strong>${escapeHtml(nic.name || "Network Adapter")}</strong>
+            <span class="nic-type">VM NIC</span>
+          </div>
+          <div class="nic-meta">
+            <span class="nic-meta-chip accent">Switch ${escapeHtml(nic.connectedVirtualSwitchName || nic.connectedVirtualSwitchId || "—")}</span>
+          </div>
+          <div class="vm-nic-summary">
+            <strong>Static IPs</strong>
+            <ul>${staticIps}</ul>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
   return `
     <div class="vm-nic-panel">
       <strong>Network Adapters</strong>
-      ${nics.map((nic) => makeNicBlock(nic)).join("")}
+      ${nicSummary}
     </div>
   `;
 }
@@ -2728,6 +3077,8 @@ function makeNodeElement(node) {
         ${makeServerDetailLine(server)}
         ${makeServerGpuAssignments(server)}
         ${makeServerNics(server)}
+        ${makeServerHyperVSwitches(server)}
+        ${makeServerVmTopology(server)}
         <div class="vm-bay" aria-label="VMs loaded on ${escapeHtml(server.name)}"></div>
       </div>
     `;
@@ -3152,6 +3503,7 @@ function renderVmFormState() {
     : "Create a new VM";
   vmSubmit.textContent = isEditing ? "Save VM" : "Add VM";
   deleteVmButton.disabled = !isEditing;
+  renderVmNicEditor();
 }
 
 function render() {
@@ -3180,13 +3532,15 @@ function createVm(values) {
     suffix += 1;
   }
 
+  const hostServerId = "";
   vms.push({
     id,
     name,
     cpu: values.cpu,
     ram: values.ram,
     size: values.size,
-    nics: [],
+    hostServerId,
+    nics: buildVmNicsFromDrafts(id, hostServerId, values.nics),
   });
   selectedVmId = id;
 }
@@ -3203,11 +3557,42 @@ function updateSelectedVm(values) {
   vm.cpu = values.cpu;
   vm.ram = values.ram;
   vm.size = values.size;
+  const hostServerId = vm.hostServerId || getVmHostServer(vm.id)?.id || "";
+  vm.nics = buildVmNicsFromDrafts(vm.id, hostServerId, values.nics);
 }
 
 function saveVm(event) {
   event.preventDefault();
   const values = getVmFormData();
+
+  if (!values.nics.length) {
+    setVmNicEditorError("A VM must have at least one network adapter.");
+    return;
+  }
+
+  for (const nic of values.nics) {
+    if (!String(nic.connectedVirtualSwitchName || "").trim()) {
+      setVmNicEditorError(`Set a Hyper-V virtual switch for ${nic.name || "a network adapter"}.`);
+      return;
+    }
+    if (!nic.ipAddresses.length) {
+      setVmNicEditorError(`${nic.name || "A network adapter"} must have at least one static IP address.`);
+      return;
+    }
+
+    for (const ip of nic.ipAddresses) {
+      if (ip.address && parseIp(ip.address) === null) {
+        setVmNicEditorError(`Invalid static IP address: ${ip.address}`);
+        return;
+      }
+      if (ip.subnetMask && maskToPrefix(ip.subnetMask) === null) {
+        setVmNicEditorError(`Invalid subnet mask on ${nic.name || "network adapter"}.`);
+        return;
+      }
+    }
+  }
+
+  setVmNicEditorError("");
 
   if (selectedVmId) {
     updateSelectedVm(values);
@@ -3488,6 +3873,62 @@ function deleteSelectedServer() {
 serverForm.addEventListener("submit", saveServer);
 vmForm.addEventListener("submit", saveVm);
 networkForm.addEventListener("submit", saveNetworkSettings);
+if (addVmNicButton) {
+  addVmNicButton.addEventListener("click", addVmNicDraft);
+}
+if (vmNicList) {
+  vmNicList.addEventListener("input", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.vmNicId;
+    const field = target.dataset.vmNicField;
+    const ipId = target.dataset.vmNicIpId;
+    const ipField = target.dataset.vmNicIpField;
+
+    if (nicId && field) {
+      updateVmNicDraft(nicId, field, target.value);
+      return;
+    }
+
+    if (nicId && ipId && ipField) {
+      updateVmNicIpDraft(nicId, ipId, ipField, target.value);
+    }
+  });
+  vmNicList.addEventListener("change", (event) => {
+    const target = event.target;
+    const nicId = target.dataset.vmNicId;
+    const field = target.dataset.vmNicField;
+    const ipId = target.dataset.vmNicIpId;
+    const ipField = target.dataset.vmNicIpField;
+
+    if (nicId && field) {
+      updateVmNicDraft(nicId, field, target.value);
+      renderVmNicEditor();
+      return;
+    }
+
+    if (nicId && ipId && ipField) {
+      updateVmNicIpDraft(nicId, ipId, ipField, target.value);
+    }
+  });
+  vmNicList.addEventListener("click", (event) => {
+    const removeNicButton = event.target.closest("[data-vm-nic-remove]");
+    if (removeNicButton) {
+      removeVmNicDraft(removeNicButton.dataset.vmNicRemove);
+      return;
+    }
+
+    const addIpButton = event.target.closest("[data-vm-nic-ip-add]");
+    if (addIpButton) {
+      addVmNicIpDraft(addIpButton.dataset.vmNicIpAdd);
+      return;
+    }
+
+    const removeIpButton = event.target.closest("[data-vm-nic-ip-remove]");
+    if (removeIpButton) {
+      removeVmNicIpDraft(removeIpButton.dataset.vmNicId, removeIpButton.dataset.vmNicIpRemove);
+    }
+  });
+}
 if (addServerNicButton) {
   addServerNicButton.addEventListener("click", addServerNicDraft);
 }

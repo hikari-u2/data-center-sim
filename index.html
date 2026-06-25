@@ -239,6 +239,17 @@
                 <span>RAM (GB)</span>
                 <input id="vm-ram" name="ram" type="number" min="1" step="1" value="4" autocomplete="off" required />
               </label>
+              <section class="vm-nic-editor" aria-label="VM network adapters">
+                <div class="vm-nic-editor-heading">
+                  <span>Network Adapters</span>
+                  <small>Each VM NIC connects to a Hyper-V virtual switch and uses static IP addresses.</small>
+                </div>
+                <div id="vm-nic-list" class="vm-nic-list"></div>
+                <div class="vm-nic-actions">
+                  <button id="add-vm-nic" class="secondary-button" type="button">Add Network Adapter</button>
+                </div>
+                <div id="vm-nic-error" class="vm-nic-error" role="alert"></div>
+              </section>
               <div class="vm-form-actions">
                 <button id="vm-submit" type="submit">Add VM</button>
                 <button id="new-vm" class="secondary-button" type="button">New</button>
