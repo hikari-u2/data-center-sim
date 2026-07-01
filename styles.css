@@ -1098,6 +1098,8 @@ h1 {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .icon-button {
@@ -1125,41 +1127,77 @@ h1 {
   color: var(--blue);
 }
 
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .focus-icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
 }
 
-.join-help {
-  display: none;
-  min-height: 34px;
+.zoom-controls {
+  display: inline-flex;
   align-items: center;
-  padding: 7px 10px;
-  border: 1px solid #cbd6dd;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #d3dde3;
   border-radius: 4px;
-  background: #f1f6f8;
-  color: #2e5369;
-  font-size: 0.86rem;
-  font-weight: 800;
+  background: #f4f8fa;
 }
 
-.join-help.is-visible {
-  display: flex;
+.zoom-button {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.zoom-level {
+  min-width: 48px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-reset {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 0.76rem;
 }
 
 .topology-canvas {
   position: relative;
   flex: 1;
   min-height: 610px;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid #cbd3d8;
   border-radius: 6px;
   background:
     linear-gradient(#edf1f3 1px, transparent 1px),
     linear-gradient(90deg, #edf1f3 1px, transparent 1px),
     #fbfcfc;
-  background-size: 32px 32px;
+  background-size: calc(32px * var(--topology-zoom, 1)) calc(32px * var(--topology-zoom, 1));
+  background-position: calc(-1px * var(--topology-scroll-x, 0)) calc(-1px * var(--topology-scroll-y, 0));
+}
+
+.topology-zoom-space {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.topology-world {
+  position: absolute;
+  inset: 0 auto auto 0;
+  min-width: 100%;
+  min-height: 100%;
+  transform-origin: 0 0;
 }
 
 .link-layer,
@@ -1781,7 +1819,15 @@ h1 {
     justify-self: stretch;
   }
 
-  .toolbar-actions button {
+  .toolbar-actions > button {
+    flex: 1;
+  }
+
+  .zoom-controls {
+    width: 100%;
+  }
+
+  .zoom-controls button {
     flex: 1;
   }
 

@@ -115,6 +115,8 @@ let links = [];
 let vms = [];
 
 const topologyCanvas = document.querySelector("#topology-canvas");
+const topologyZoomSpace = document.querySelector("#topology-zoom-space");
+const topologyWorld = document.querySelector("#topology-world");
 const nodeLayer = document.querySelector("#node-layer");
 const linkLayer = document.querySelector("#link-layer");
 const vmPool = document.querySelector("#vm-pool");
@@ -142,10 +144,11 @@ const serverGpuSlotsInput = document.querySelector("#server-gpu-slots");
 const serverCount = document.querySelector("#server-count");
 const linkCount = document.querySelector("#link-count");
 const vmCount = document.querySelector("#vm-count");
-const joinToggle = document.querySelector("#join-toggle");
 const addStickyNoteButton = document.querySelector("#add-sticky-note");
-const clearSelection = document.querySelector("#clear-selection");
-const joinHelp = document.querySelector("#join-help");
+const zoomOutButton = document.querySelector("#zoom-out");
+const zoomInButton = document.querySelector("#zoom-in");
+const zoomResetButton = document.querySelector("#zoom-reset");
+const zoomLevel = document.querySelector("#zoom-level");
 const networkForm = document.querySelector("#network-form");
 const subnetInput = document.querySelector("#subnet-input");
 const desktopIpInput = document.querySelector("#desktop-ip-input");
@@ -182,8 +185,6 @@ const gpuDialogLocationInput = document.querySelector("#gpu-dialog-location");
 const gpuDialogError = document.querySelector("#gpu-dialog-error");
 const gpuDialogSkip = document.querySelector("#gpu-dialog-skip");
 
-let joinMode = false;
-let selectedNodeId = null;
 let selectedServerId = null;
 let selectedVmId = null;
 let selectedGpuId = null;
@@ -196,9 +197,15 @@ let pendingGpuAssignment = null;
 let dragging = null;
 let suppressedClickNodeId = null;
 let stickyNotes = [];
+let topologyZoom = 1;
+let topologyBaseWidth = 0;
+let topologyBaseHeight = 0;
 const DEFAULT_SWITCH_PORTS = 8;
 const DEFAULT_SERVER_SUBNET = "192.168.1.0/24";
 const SAMPLE_PCIE_LOCATION_PATH = "PCIROOT(0)#PCI(1D00)#PCI(0000)";
+const MIN_TOPOLOGY_ZOOM = 0.5;
+const MAX_TOPOLOGY_ZOOM = 1.75;
+const TOPOLOGY_ZOOM_STEP = 0.25;
 const MASK_OCTET_PREFIX = {
   255: 8,
   254: 7,
@@ -222,6 +229,99 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function clampTopologyZoom(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return 1;
+  }
+  return Math.min(Math.max(numericValue, MIN_TOPOLOGY_ZOOM), MAX_TOPOLOGY_ZOOM);
+}
+
+function getTopologyWorldWidth() {
+  return topologyBaseWidth || topologyWorld?.clientWidth || topologyCanvas?.clientWidth || 1;
+}
+
+function getTopologyWorldHeight() {
+  return topologyBaseHeight || topologyWorld?.clientHeight || topologyCanvas?.clientHeight || 1;
+}
+
+function getTopologyPointerPoint(event) {
+  const rect = topologyCanvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left + topologyCanvas.scrollLeft) / topologyZoom,
+    y: (event.clientY - rect.top + topologyCanvas.scrollTop) / topologyZoom,
+  };
+}
+
+function updateTopologyScrollBackground() {
+  if (!topologyCanvas) {
+    return;
+  }
+  topologyCanvas.style.setProperty("--topology-scroll-x", topologyCanvas.scrollLeft);
+  topologyCanvas.style.setProperty("--topology-scroll-y", topologyCanvas.scrollTop);
+}
+
+function measureTopologyBaseSize() {
+  if (!topologyCanvas) {
+    return;
+  }
+
+  const rect = topologyCanvas.getBoundingClientRect();
+  topologyBaseWidth = Math.max(1, Math.round(rect.width));
+  topologyBaseHeight = Math.max(1, Math.round(rect.height));
+}
+
+function applyTopologyZoom() {
+  if (!topologyCanvas || !topologyZoomSpace || !topologyWorld) {
+    return;
+  }
+
+  measureTopologyBaseSize();
+  const width = getTopologyWorldWidth();
+  const height = getTopologyWorldHeight();
+  const scaledWidth = Math.round(width * topologyZoom);
+  const scaledHeight = Math.round(height * topologyZoom);
+
+  topologyCanvas.style.setProperty("--topology-zoom", topologyZoom);
+  topologyZoomSpace.style.width = `${scaledWidth}px`;
+  topologyZoomSpace.style.height = `${scaledHeight}px`;
+  topologyWorld.style.width = `${width}px`;
+  topologyWorld.style.height = `${height}px`;
+  topologyWorld.style.transform = `scale(${topologyZoom})`;
+
+  if (zoomLevel) {
+    zoomLevel.textContent = `${Math.round(topologyZoom * 100)}%`;
+  }
+  if (zoomOutButton) {
+    zoomOutButton.disabled = topologyZoom <= MIN_TOPOLOGY_ZOOM;
+  }
+  if (zoomInButton) {
+    zoomInButton.disabled = topologyZoom >= MAX_TOPOLOGY_ZOOM;
+  }
+  if (zoomResetButton) {
+    zoomResetButton.disabled = topologyZoom === 1;
+  }
+
+  updateTopologyScrollBackground();
+}
+
+function setTopologyZoom(nextZoom) {
+  if (!topologyCanvas) {
+    return;
+  }
+
+  const previousZoom = topologyZoom;
+  const centerX = (topologyCanvas.scrollLeft + topologyCanvas.clientWidth / 2) / previousZoom;
+  const centerY = (topologyCanvas.scrollTop + topologyCanvas.clientHeight / 2) / previousZoom;
+  topologyZoom = clampTopologyZoom(nextZoom);
+
+  applyTopologyZoom();
+  topologyCanvas.scrollLeft = Math.max(0, centerX * topologyZoom - topologyCanvas.clientWidth / 2);
+  topologyCanvas.scrollTop = Math.max(0, centerY * topologyZoom - topologyCanvas.clientHeight / 2);
+  updateTopologyScrollBackground();
+  renderLinks();
 }
 
 function parseIp(value) {
@@ -2177,8 +2277,6 @@ function fillServerForm(server) {
 
 function resetServerForm() {
   selectedServerId = null;
-  selectedNodeId = null;
-  joinMode = false;
   selectedGpuId = null;
   serverNicDrafts = [normalizeServerNicDraft({ name: "Management", adapterType: "management-os", ipAddresses: [] })];
   selectedServerNicId = serverNicDrafts[0].id;
@@ -2252,8 +2350,6 @@ function selectServerForEdit(serverId) {
   }
 
   selectedServerId = serverId;
-  selectedNodeId = null;
-  joinMode = false;
   fillServerForm(server);
   render();
 }
@@ -3143,10 +3239,6 @@ function makeNodeElement(node) {
     element.classList.add("has-invalid-ip");
   }
 
-  if (node.id === selectedNodeId) {
-    element.classList.add("is-selected");
-  }
-
   if (node.id === selectedServerId) {
     element.classList.add("is-editing");
   }
@@ -3236,15 +3328,14 @@ function startDrag(event) {
   }
 
   const nodeId = event.currentTarget.dataset.nodeId;
-  const rect = topologyCanvas.getBoundingClientRect();
-  const nodeRect = event.currentTarget.getBoundingClientRect();
+  const pointerPoint = getTopologyPointerPoint(event);
 
   dragging = {
     nodeId,
-    offsetX: event.clientX - nodeRect.left,
-    offsetY: event.clientY - nodeRect.top,
-    width: nodeRect.width,
-    height: nodeRect.height,
+    offsetX: pointerPoint.x - event.currentTarget.offsetLeft,
+    offsetY: pointerPoint.y - event.currentTarget.offsetTop,
+    width: event.currentTarget.offsetWidth,
+    height: event.currentTarget.offsetHeight,
     moved: false,
   };
 
@@ -3256,15 +3347,17 @@ function moveDrag(event) {
     return;
   }
 
-  const rect = topologyCanvas.getBoundingClientRect();
   const node = getDraggableNodeById(dragging.nodeId);
   if (!node) {
     return;
   }
-  const nextX = ((event.clientX - rect.left - dragging.offsetX) / rect.width) * 100;
-  const nextY = ((event.clientY - rect.top - dragging.offsetY) / rect.height) * 100;
-  const maxX = 100 - (dragging.width / rect.width) * 100;
-  const maxY = 100 - (dragging.height / rect.height) * 100;
+  const pointerPoint = getTopologyPointerPoint(event);
+  const width = getTopologyWorldWidth();
+  const height = getTopologyWorldHeight();
+  const nextX = ((pointerPoint.x - dragging.offsetX) / width) * 100;
+  const nextY = ((pointerPoint.y - dragging.offsetY) / height) * 100;
+  const maxX = 100 - (dragging.width / width) * 100;
+  const maxY = 100 - (dragging.height / height) * 100;
 
   node.x = Math.min(Math.max(nextX, 1), Math.max(maxX, 1));
   node.y = Math.min(Math.max(nextY, 1), Math.max(maxY, 1));
@@ -3299,26 +3392,9 @@ function handleNodeClick(nodeId) {
     return;
   }
 
-  if (!joinMode) {
-    if (getServer(nodeId)) {
-      selectServerForEdit(nodeId);
-    }
-    return;
+  if (getServer(nodeId)) {
+    selectServerForEdit(nodeId);
   }
-
-  if (!selectedNodeId) {
-    selectedNodeId = nodeId;
-    renderNodes();
-    return;
-  }
-
-  if (selectedNodeId !== nodeId) {
-    addLink(selectedNodeId, nodeId);
-    saveConfig();
-  }
-
-  selectedNodeId = null;
-  render();
 }
 
 function addLink(from, to) {
@@ -3358,8 +3434,8 @@ function getNodeCenter(node) {
 
 function renderLinks() {
   linkLayer.innerHTML = "";
-  const width = topologyCanvas.clientWidth;
-  const height = topologyCanvas.clientHeight;
+  const width = getTopologyWorldWidth();
+  const height = getTopologyWorldHeight();
   linkLayer.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
   links.forEach((link) => {
@@ -3591,12 +3667,6 @@ function removeSubnet(subnetId) {
   saveConfig();
 }
 
-function renderJoinState() {
-  joinToggle.classList.toggle("is-active", joinMode);
-  clearSelection.disabled = !joinMode && !selectedNodeId;
-  joinHelp.classList.toggle("is-visible", joinMode);
-}
-
 function renderServerFormState() {
   const selectedServer = getServer(selectedServerId);
   const isEditing = Boolean(selectedServer);
@@ -3634,12 +3704,12 @@ function render() {
   networkValidation = computeNetworkValidation();
   renderCounters();
   renderNetworkSettings();
-  renderJoinState();
   renderServerFormState();
   renderVmFormState();
   renderGpuEditor();
   renderNodes();
   renderStickyNotes();
+  applyTopologyZoom();
   requestAnimationFrame(renderLinks);
   renderVmPool();
   renderIpManagement();
@@ -4251,25 +4321,38 @@ focusToggle.addEventListener("click", () => {
   workspace.addEventListener("transitionend", function onEnd(e) {
     if (e.propertyName === "grid-template-columns") {
       workspace.removeEventListener("transitionend", onEnd);
+      applyTopologyZoom();
       renderLinks();
     }
   });
 });
 
-joinToggle.addEventListener("click", () => {
-  joinMode = !joinMode;
-  selectedNodeId = null;
-  render();
-});
-clearSelection.addEventListener("click", () => {
-  selectedNodeId = null;
-  joinMode = false;
-  render();
-});
+if (zoomOutButton) {
+  zoomOutButton.addEventListener("click", () => {
+    setTopologyZoom(topologyZoom - TOPOLOGY_ZOOM_STEP);
+  });
+}
+if (zoomInButton) {
+  zoomInButton.addEventListener("click", () => {
+    setTopologyZoom(topologyZoom + TOPOLOGY_ZOOM_STEP);
+  });
+}
+if (zoomResetButton) {
+  zoomResetButton.addEventListener("click", () => {
+    setTopologyZoom(1);
+  });
+}
+if (topologyCanvas) {
+  topologyCanvas.addEventListener("scroll", updateTopologyScrollBackground);
+}
+
 topologyCanvas.addEventListener("pointermove", moveDrag);
 topologyCanvas.addEventListener("pointerup", stopDrag);
 topologyCanvas.addEventListener("pointercancel", stopDrag);
-window.addEventListener("resize", renderLinks);
+window.addEventListener("resize", () => {
+  applyTopologyZoom();
+  renderLinks();
+});
 
 attachDropZone(vmPool, "pool");
 loadConfig().then(() => {

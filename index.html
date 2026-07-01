@@ -141,7 +141,7 @@
 
           <div class="tip-box">
             <strong>Build the diagram</strong>
-            <p>Click a server to edit it. Drag devices to move them. Use Join Devices, then select two devices to connect them.</p>
+            <p>Click a server to edit it. Drag devices to move them. Server links stay visible on the topology map.</p>
           </div>
         </aside>
 
@@ -152,6 +152,12 @@
               <span>Network Topology</span>
             </div>
             <div class="toolbar-actions">
+              <div class="zoom-controls" aria-label="Topology zoom controls">
+                <button id="zoom-out" class="icon-button zoom-button" type="button" title="Zoom out" aria-label="Zoom out">-</button>
+                <span id="zoom-level" class="zoom-level" aria-live="polite">100%</span>
+                <button id="zoom-in" class="icon-button zoom-button" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+                <button id="zoom-reset" class="ghost-button zoom-reset" type="button">Reset</button>
+              </div>
               <button id="focus-toggle" class="icon-button" type="button" title="Expand topology, collapse side panels" aria-pressed="false">
                 <svg class="focus-icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8">
                   <polyline points="3,7 3,3 7,3" />
@@ -162,14 +168,15 @@
                 <span>Expand View</span>
               </button>
               <button id="add-sticky-note" class="secondary-button" type="button">Add Sticky Note</button>
-              <button id="join-toggle" class="secondary-button" type="button">Join Devices</button>
-              <button id="clear-selection" class="ghost-button" type="button">Cancel</button>
             </div>
           </div>
-          <div id="join-help" class="join-help">Select the first device, then select the second device.</div>
           <div id="topology-canvas" class="topology-canvas" aria-label="Draggable network topology">
-            <svg id="link-layer" class="link-layer" aria-hidden="true"></svg>
-            <div id="node-layer" class="node-layer"></div>
+            <div id="topology-zoom-space" class="topology-zoom-space">
+              <div id="topology-world" class="topology-world">
+                <svg id="link-layer" class="link-layer" aria-hidden="true"></svg>
+                <div id="node-layer" class="node-layer"></div>
+              </div>
+            </div>
           </div>
         </section>
 

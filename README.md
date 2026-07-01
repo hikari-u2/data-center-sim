@@ -38,7 +38,7 @@ The important artifacts are:
 
 - `index.html`: the page structure and controls.
 - `styles.css`: the engineering-style visual design.
-- `app.js`: the app behavior, drag/drop, CRUD, joining devices, rendering, and save calls.
+- `app.js`: the app behavior, drag/drop, CRUD, topology rendering, and save calls.
 - `serve-local.ps1`: the PowerShell local backend that serves the page and saves config changes.
 - `Start Data Center Sim.bat`: the double-click Windows launcher for non-technical users.
 - `data/config.json`: the saved servers, desktop, VMs, network links, static IPs, subnet, and node positions.
@@ -136,7 +136,7 @@ sequenceDiagram
   Backend-->>App: Send config
   App-->>Browser: Render servers, desktop, switch, links, and VMs
 
-  User->>Browser: Add, edit, delete, drag, join, or move VM
+  User->>Browser: Add, edit, delete, drag, or move VM
   Browser->>App: Update in-memory design
   App->>Backend: POST /api/config
   Backend->>Config: Save updated JSON
@@ -284,4 +284,3 @@ You can also:
 - Delete a selected server and remove its network links
 - Add, edit, and delete VMs with name and size
 - Drag devices around the topology canvas
-- Use **Join Devices** and select two devices to connect them
